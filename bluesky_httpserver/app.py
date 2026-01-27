@@ -119,6 +119,10 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     ----------
     authentication: dict, optional
         Dict of authentication configuration.
+    api_access: dict, optional
+        Dict of api_access configuration.
+    resoruce_access: dict, optional
+        Dict of resource_access configuration.
     server_settings: dict, optional
         Dict of other server configuration.
     """

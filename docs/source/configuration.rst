@@ -165,7 +165,7 @@ with the string value of the key or multiple keys separated by ';'. Alternativel
 the secret key can be set as part of *authentication* parameters in the server config file::
 
   authentication:
-    secret_key:
+    secret_keys:
       - ${SECRET_KEY_1}
       - ${SECRET_KEY_2}
 
@@ -317,15 +317,23 @@ Authorization: API Access
 
 The HTTP Server is using API access policy to determine whether an authorized user
 is allowed to call requested API. The API access policy associates user names with
-one or several roles and the roles with allowed access scopes. If no policy is
-selected in the configuration, the server is using ``BasicAPIAccessControl``, which
+one or several roles and the roles with allowed access scopes.
+
+If no policy is selected in the configuration, the server is using ``BasicAPIAccessControl``, which
 supports API access control for single-user and anonymous public access.
 ``DictionaryAPIAccessControl`` policy is a subclass of the basic policy that
 accepts the fixed dictionary that maps user names to assigned roles as an argument
 during initialization (arguments are defined in the config file) and serves as
-a convenient tool for testing, demos and small local deployments.
-More sophisticated policies based on ``BasicAPIAccessControl`` should be implemented
-for production deployments, where user roles are stored on a secure server.
+a convenient tool for testing, demos and small local deployments. ``ServerBasedAPIAccessControl``
+can be used for external server based access control. For production deployments with user roles
+stored on a secure server should be developed based on ``BasicAPIAccessControl``.
+
+The default access scopes for each role is specified in
+`/bluesky_httpserver/authorization/_defaults.py`. These scopes for each role can be modified
+in the configuration for each API Access Policy by adding or removing scopes. See the example
+policy configurations below for examples. The list of all scopes available is documented in the
+``_DEFAULT_SCOPES_FULL_LIST`` list within ``_defaults.py``.
+
 
 .. _basic_api_access_policy:
 
