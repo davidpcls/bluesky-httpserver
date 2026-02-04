@@ -223,7 +223,7 @@ class BasicAPIAccessControl:
             scopes = set().union(*[self._collect_scopes(_) for _ in roles])
         return scopes
 
-    def is_user_known(self, username):
+    def is_user_known(self, username, *, session_state=None):
         """
         Performs quick check whether the user is known. In many cases it does not make sense to
         perform any further authorization steps if the user is unknown. If the user is known, but
@@ -234,6 +234,9 @@ class BasicAPIAccessControl:
         ----------
         username: str
             User name
+        session_state: dict, optional
+            Custom session state information from the authenticator. This can be used by
+            subclasses to make authorization decisions based on additional context.
 
         Returns
         -------
@@ -262,7 +265,7 @@ class BasicAPIAccessControl:
             roles = [roles]
         return set(roles)
 
-    def get_user_scopes(self, username):
+    def get_user_scopes(self, username, *, session_state=None):
         """
         Returns a set of scopes assigned to the user. The scopes are based on the user roles.
 
@@ -270,6 +273,9 @@ class BasicAPIAccessControl:
         ----------
         username: str
             User name
+        session_state: dict, optional
+            Custom session state information from the authenticator. This can be used by
+            subclasses to make authorization decisions based on additional context.
 
         Returns
         -------
