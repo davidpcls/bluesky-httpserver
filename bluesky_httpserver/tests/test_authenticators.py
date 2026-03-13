@@ -11,17 +11,16 @@ from jose.backends import RSAKey
 from respx import MockRouter
 from starlette.datastructures import URL, QueryParams
 
+from ..authenticators import LDAPAuthenticator, OIDCAuthenticator, ProxiedOIDCAuthenticator, UserSessionState
+
 LDAP_TEST_HOST = os.environ.get("QSERVER_TEST_LDAP_HOST", "localhost")
 LDAP_TEST_PORT = int(os.environ.get("QSERVER_TEST_LDAP_PORT", "1389"))
 LDAP_TEST_ALT_HOST = os.environ.get("QSERVER_TEST_LDAP_ALT_HOST")
 if not LDAP_TEST_ALT_HOST:
-    LDAP_TEST_ALT_HOST = (
-        "127.0.0.1" if LDAP_TEST_HOST == "localhost" else LDAP_TEST_HOST
-    )
+    LDAP_TEST_ALT_HOST = "127.0.0.1" if LDAP_TEST_HOST == "localhost" else LDAP_TEST_HOST
 
 
 # fmt: off
-from ..authenticators import LDAPAuthenticator, OIDCAuthenticator, ProxiedOIDCAuthenticator, UserSessionState
 
 
 @pytest.mark.parametrize("ldap_server_address, ldap_server_port", [
