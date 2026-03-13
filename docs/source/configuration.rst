@@ -261,7 +261,7 @@ LDAP Authenticator
 LDAP authenticator is designed for production deployments. The authenticator validates
 user login information (username/password) by communicating with LDAP server (e.g. active
 Directory server). The following example illustrates how to configure the server to
-use demo OpenLDAP server running in docker container (run ``./start_LDAP.sh`` in the root
+use demo OpenLDAP server running in docker container (run ``source continuous_integration/scripts/start_LDAP.sh`` in the root
 of the repository to start the server). The server is configured to authenticate
 two users: *'user01'* and *'user02'* with passwords *'password1'* and *'password2'*
 respectively. The configuration does not enable public access. ::
