@@ -1,0 +1,17 @@
+alembic
+bluesky-queueserver
+bluesky-queueserver-api
+cachetools
+fastapi
+httpx
+ldap3
+orjson
+pamela
+pydantic
+pydantic-settings
+python-jose
+pyzmq
+sqlalchemy
+starlette
+typing-extensions;python_version<'3.8'
+uvicorn

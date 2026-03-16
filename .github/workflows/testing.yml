@@ -58,7 +58,7 @@ jobs:
 
         pip install --upgrade pip
         pip install .
-        pip install ".[dev]"
+        pip install -r requirements-dev.txt
         # pip install "pydantic${{ matrix.pydantic-version }}"
         # pip install bluesky==1.11.0
 

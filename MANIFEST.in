@@ -2,6 +2,8 @@ include AUTHORS.rst
 include CONTRIBUTING.rst
 include LICENSE
 include README.rst
+include requirements.txt
+
 include bluesky_httpserver/database/alembic.ini.template
 include bluesky_httpserver/database/migrations/env.py
 include bluesky_httpserver/database/migrations/script.py.mako
