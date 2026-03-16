@@ -26,7 +26,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Sequence
@@ -51,9 +50,7 @@ def run(
     return subprocess.run(command, cwd=cwd, env=env, check=check, text=True)
 
 
-def shell(
-    command: str, *, cwd: Path, env: dict | None = None, check: bool = True
-) -> subprocess.CompletedProcess:
+def shell(command: str, *, cwd: Path, env: dict | None = None, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(command, cwd=cwd, env=env, check=check, text=True, shell=True)
 
 
@@ -77,9 +74,7 @@ def ensure_docker_available(repo_root: Path) -> None:
 
 def discover_test_files(repo_root: Path) -> List[str]:
     test_dir = repo_root / "bluesky_httpserver" / "tests"
-    files = sorted(
-        str(path.relative_to(repo_root)) for path in test_dir.glob("test_*.py")
-    )
+    files = sorted(str(path.relative_to(repo_root)) for path in test_dir.glob("test_*.py"))
     return files
 
 
@@ -101,12 +96,7 @@ def start_redis_container(repo_root: Path, name: str) -> None:
 
 
 def start_ldap_compose(repo_root: Path) -> None:
-    compose_file = (
-        repo_root
-        / "continuous_integration"
-        / "docker-configs"
-        / "ldap-docker-compose.yml"
-    )
+    compose_file = repo_root / "continuous_integration" / "docker-configs" / "ldap-docker-compose.yml"
     env = os.environ.copy()
     env["LDAP_COMPOSE_FILE"] = str(compose_file)
     env["LDAP_COMPOSE_PROJECT"] = "bhs-ci-ldap"
@@ -123,12 +113,7 @@ def start_ldap_compose(repo_root: Path) -> None:
 
 
 def stop_ldap_compose(repo_root: Path) -> None:
-    compose_file = (
-        repo_root
-        / "continuous_integration"
-        / "docker-configs"
-        / "ldap-docker-compose.yml"
-    )
+    compose_file = repo_root / "continuous_integration" / "docker-configs" / "ldap-docker-compose.yml"
     run(
         [
             "docker",
@@ -150,9 +135,7 @@ def make_worker_name(python_version: str, index: int) -> str:
     return f"bhs-ci-py{v}-worker{index}"
 
 
-def start_worker_container(
-    repo_root: Path, python_version: str, worker_name: str
-) -> None:
+def start_worker_container(repo_root: Path, python_version: str, worker_name: str) -> None:
     run(docker_cmd("rm", "-f", worker_name), cwd=repo_root, check=False)
     run(
         docker_cmd(
@@ -176,9 +159,7 @@ def start_worker_container(
     )
 
 
-def exec_in_worker(
-    repo_root: Path, worker_name: str, command: str, *, log_path: Path
-) -> int:
+def exec_in_worker(repo_root: Path, worker_name: str, command: str, *, log_path: Path) -> int:
     full_cmd = ["docker", "exec", worker_name, "bash", "-lc", command]
     with log_path.open("w", encoding="utf-8") as log_file:
         process = subprocess.run(
@@ -254,9 +235,7 @@ def run_test_matrix(
 
     for python_version in python_versions:
         print(f"\n=== Python {python_version}: preparing workers ===", flush=True)
-        workers = [
-            make_worker_name(python_version, i + 1) for i in range(workers_per_version)
-        ]
+        workers = [make_worker_name(python_version, i + 1) for i in range(workers_per_version)]
 
         for worker in workers:
             start_worker_container(repo_root, python_version, worker)
@@ -266,10 +245,7 @@ def run_test_matrix(
                 bootstrap_worker(repo_root, worker)
 
             if tests_per_chunk and tests_per_chunk > 0:
-                chunks = [
-                    test_files[i : i + tests_per_chunk]
-                    for i in range(0, len(test_files), tests_per_chunk)
-                ]
+                chunks = [test_files[i : i + tests_per_chunk] for i in range(0, len(test_files), tests_per_chunk)]
             else:
                 n_chunks = (
                     chunks_per_version
@@ -295,12 +271,8 @@ def run_test_matrix(
                         "QSERVER_TEST_LDAP_PORT=1389 "
                         f"coverage run -m pytest -vv {chunk_args}"
                     )
-                    log_path = (
-                        artifacts_dir / f"{worker_name}-chunk{chunk_index:03d}.log"
-                    )
-                    rc = exec_in_worker(
-                        repo_root, worker_name, command, log_path=log_path
-                    )
+                    log_path = artifacts_dir / f"{worker_name}-chunk{chunk_index:03d}.log"
+                    rc = exec_in_worker(repo_root, worker_name, command, log_path=log_path)
                     with results_lock:
                         all_results.append(
                             ChunkResult(
@@ -314,10 +286,7 @@ def run_test_matrix(
                         )
                     work_queue.task_done()
 
-            threads = [
-                threading.Thread(target=worker_loop, args=(worker,), daemon=True)
-                for worker in workers
-            ]
+            threads = [threading.Thread(target=worker_loop, args=(worker,), daemon=True) for worker in workers]
             for t in threads:
                 t.start()
             for t in threads:
