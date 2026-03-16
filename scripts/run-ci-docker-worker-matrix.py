@@ -199,7 +199,7 @@ def bootstrap_worker(repo_root: Path, worker_name: str) -> None:
             "pip install git+https://github.com/bluesky/bluesky-queueserver.git",
             "pip install git+https://github.com/bluesky/bluesky-queueserver-api.git",
             "pip install .",
-            "pip install -r requirements-dev.txt",
+            'pip install ".[dev]"',
             "pip list",
         ]
     )

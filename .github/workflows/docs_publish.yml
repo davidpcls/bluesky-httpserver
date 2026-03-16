@@ -45,7 +45,7 @@ jobs:
         popd
 
         pip install .
-        pip install -r requirements-dev.txt
+        pip install ".[dev]"
         pip list
     - name: Build Docs
       run: |

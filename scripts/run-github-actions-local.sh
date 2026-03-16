@@ -78,12 +78,10 @@ install_dependencies() {
       exit 1
     fi
     run_cmd uv pip install --python "${UV_PROJECT_PYTHON}" --upgrade pip setuptools numpy
-    run_cmd uv pip install --python "${UV_PROJECT_PYTHON}" -e .
-    run_cmd uv pip install --python "${UV_PROJECT_PYTHON}" -r requirements-dev.txt
+    run_cmd uv pip install --python "${UV_PROJECT_PYTHON}" -e ".[dev]"
   else
     run_cmd "${PYTHON_BIN}" -m pip install --upgrade pip setuptools numpy
-    run_cmd "${PYTHON_BIN}" -m pip install -e .
-    run_cmd "${PYTHON_BIN}" -m pip install -r requirements-dev.txt
+    run_cmd "${PYTHON_BIN}" -m pip install -e ".[dev]"
   fi
 }
 

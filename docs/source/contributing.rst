@@ -98,7 +98,7 @@ Install the HTTP Server in editable mode::
 
 Install development dependencies::
 
-  $ pip install -r requirements-dev.txt
+  $ pip install -e ".[dev]"
 
 
 Setting up `pre-commit`
