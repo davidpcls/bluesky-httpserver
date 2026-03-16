@@ -33,6 +33,7 @@ dependencies = [
   "starlette",
   "typing-extensions; python_version < '3.8'",
   "uvicorn",
+  "versioneer>=0.29",
 ]
 
 [project.optional-dependencies]
