@@ -1309,9 +1309,21 @@ def test_http_server_manager_kill(re_manager, fastapi_server):  # noqa F811
     assert "success" not in resp
     assert any(_ in resp["detail"] for _ in timeout_variants)
 
-    assert wait_for_manager_state_idle(20), "Timeout"
+    deadline = ttime.time() + 20
+    last_status = None
+    while ttime.time() < deadline:
+        ttime.sleep(0.2)
+        last_status = request_to_json("get", "/status")
+        if (
+            isinstance(last_status, dict)
+            and last_status.get("manager_state") == "idle"
+            and last_status.get("worker_environment_exists") is True
+        ):
+            break
+    else:
+        assert False, f"Timeout while waiting for manager recovery after kill. Last status: {last_status!r}"
 
-    resp = request_to_json("get", "/status")
+    resp = last_status
     assert resp["msg"].startswith("RE Manager")
     assert resp["manager_state"] == "idle"
     assert resp["items_in_queue"] == 0
