@@ -64,6 +64,23 @@ wait_for_ldap_bind() {
     return 1
 }
 
+print_ldap_diagnostics() {
+    local container_id="${1:-}"
+
+    echo "LDAP startup diagnostics:" >&2
+    compose_cmd ps >&2 || true
+
+    if [[ -z "$container_id" ]]; then
+        container_id="$(get_openldap_container_id)"
+    fi
+
+    if [[ -n "$container_id" ]]; then
+        docker logs --tail 200 "$container_id" >&2 || true
+    else
+        compose_cmd logs --tail 200 openldap >&2 || true
+    fi
+}
+
 ldap_entry_exists() {
     local container_id="$1"
     local dn="$2"
@@ -120,12 +137,24 @@ userPassword: password2"
 
 # Start LDAP server in docker container
 compose_cmd up -d
-wait_for_ldap 90
 CONTAINER_ID="$(get_openldap_container_id)"
 if [[ -z "$CONTAINER_ID" ]]; then
     echo "Unable to determine LDAP container id from compose project." >&2
+    print_ldap_diagnostics
     exit 1
 fi
-wait_for_ldap_bind "$CONTAINER_ID" 90
+
+if ! wait_for_ldap 120; then
+    echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} did not become reachable in time." >&2
+    print_ldap_diagnostics "$CONTAINER_ID"
+    exit 1
+fi
+
+if ! wait_for_ldap_bind "$CONTAINER_ID" 120; then
+    echo "LDAP admin bind did not become ready in time." >&2
+    print_ldap_diagnostics "$CONTAINER_ID"
+    exit 1
+fi
+
 seed_ldap_test_users "$CONTAINER_ID"
 docker ps

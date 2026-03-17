@@ -67,3 +67,14 @@ jobs:
       run: |
         coverage run -m pytest -vv
         coverage report -m
+    - name: Dump LDAP diagnostics on failure
+      if: failure()
+      run: |
+        docker ps
+        docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml ps
+        LDAP_CONTAINER_ID=$(docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml ps -q openldap | tr -d '[:space:]')
+        if [ -n "$LDAP_CONTAINER_ID" ]; then
+          docker logs --tail 200 "$LDAP_CONTAINER_ID"
+        else
+          docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml logs --tail 200 openldap
+        fi
