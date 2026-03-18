@@ -7,14 +7,12 @@ from typing import Any
 
 import pytest
 import requests
-from bluesky_queueserver.manager.tests.common import re_manager_cmd  # noqa F401
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
     API_KEY_FOR_TESTS,
     SERVER_ADDRESS,
     SERVER_PORT,
-    fastapi_server_fs,
     request_to_json,
     set_qserver_zmq_encoding,
     wait_for_environment_to_be_closed,
@@ -112,9 +110,7 @@ def test_http_server_stream_console_output_1(
     resp1 = request_to_json(
         "post",
         "/queue/item/add",
-        json={
-            "item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
-        },
+        json={"item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}},
     )
     assert resp1["success"] is True
     assert resp1["qsize"] == 1
@@ -134,9 +130,7 @@ def test_http_server_stream_console_output_1(
     assert resp2["running_item"] == {}
 
     rsc.join(timeout=10)
-    assert not rsc.is_alive(), (
-        "Timed out waiting for stream_console_output thread to terminate"
-    )
+    assert not rsc.is_alive(), "Timed out waiting for stream_console_output thread to terminate"
 
     assert len(rsc.received_data_buffer) >= 2, pprint.pformat(rsc.received_data_buffer)
 
@@ -148,9 +142,9 @@ def test_http_server_stream_console_output_1(
             if emsg in msg["msg"]:
                 expected_messages.remove(emsg)
 
-    assert not expected_messages, (
-        f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
-    )
+    assert (
+        not expected_messages
+    ), f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
 
 
 _script1 = r"""
@@ -291,9 +285,7 @@ def test_http_server_console_output_update_1(
     assert resp2a["console_output_msgs"] == []
 
     # Download ALL existing messages
-    resp2b = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": "ALL"}
-    )
+    resp2b = request_to_json("get", "/console_output_update", json={"last_msg_uid": "ALL"})
     assert resp2b["success"] is True
     assert resp2b["msg"] == ""
     assert resp2b["last_msg_uid"] == last_msg_uid_1
@@ -309,9 +301,7 @@ def test_http_server_console_output_update_1(
     ttime.sleep(3)
     assert wait_for_manager_state_idle(timeout=10)
 
-    resp4a = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1}
-    )
+    resp4a = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1})
     last_msg_uid_2 = resp4a["last_msg_uid"]
     assert last_msg_uid_2 != last_msg_uid_1
     console_output = resp4a["console_output_msgs"]
@@ -319,9 +309,7 @@ def test_http_server_console_output_update_1(
     assert expected_output in console_output_text
     assert console_output_text.count(expected_output) == 1
 
-    resp4b = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": "ALL"}
-    )
+    resp4b = request_to_json("get", "/console_output_update", json={"last_msg_uid": "ALL"})
     assert resp4b["last_msg_uid"] == last_msg_uid_2
     console_output = resp4b["console_output_msgs"]
     console_output_text = "".join([_["msg"] for _ in console_output])
@@ -338,9 +326,7 @@ def test_http_server_console_output_update_1(
     assert wait_for_manager_state_idle(timeout=10)
 
     # Download the lastest updates
-    resp6a = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_2}
-    )
+    resp6a = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_2})
     last_msg_uid_3 = resp6a["last_msg_uid"]
     assert last_msg_uid_3 != last_msg_uid_2
     console_output = resp6a["console_output_msgs"]
@@ -350,9 +336,7 @@ def test_http_server_console_output_update_1(
 
     # Download the updates using 'old' UID. The script was uploaded twice, so the output should
     #   contain two copies of the printed output
-    resp6b = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1}
-    )
+    resp6b = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1})
     assert resp6b["last_msg_uid"] == last_msg_uid_3
     console_output = resp6b["console_output_msgs"]
     console_output_text = "".join([_["msg"] for _ in console_output])
@@ -360,9 +344,7 @@ def test_http_server_console_output_update_1(
     assert console_output_text.count(expected_output) == 2
 
     # No updates are expected since last request
-    resp6c = request_to_json(
-        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_3}
-    )
+    resp6c = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_3})
     assert resp6c["last_msg_uid"] == last_msg_uid_3
     assert resp6c["console_output_msgs"] == []
 
@@ -438,9 +420,7 @@ def test_http_server_console_output_socket_1(
     resp1 = request_to_json(
         "post",
         "/queue/item/add",
-        json={
-            "item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
-        },
+        json={"item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}},
     )
     assert resp1["success"] is True
     assert resp1["qsize"] == 1
@@ -460,9 +440,7 @@ def test_http_server_console_output_socket_1(
     assert resp2["running_item"] == {}
 
     rsc.join(timeout=10)
-    assert not rsc.is_alive(), (
-        "Timed out waiting for console_output websocket thread to terminate"
-    )
+    assert not rsc.is_alive(), "Timed out waiting for console_output websocket thread to terminate"
 
     assert len(rsc.received_data_buffer) >= 2, pprint.pformat(rsc.received_data_buffer)
 
@@ -474,6 +452,6 @@ def test_http_server_console_output_socket_1(
             if emsg in msg["msg"]:
                 expected_messages.remove(emsg)
 
-    assert not expected_messages, (
-        f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
-    )
+    assert (
+        not expected_messages
+    ), f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
