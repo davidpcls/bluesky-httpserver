@@ -3,6 +3,7 @@ import pprint
 import re
 import threading
 import time as ttime
+from typing import Any
 
 import pytest
 import requests
@@ -36,37 +37,42 @@ class _ReceiveStreamedConsoleOutput(threading.Thread):
         self._api_key = api_key
 
     def run(self):
-        kwargs = {"stream": True}
+        kwargs: dict[str, Any] = {"stream": True}
         if self._api_key:
-            auth = None
             headers = {"Authorization": f"ApiKey {self._api_key}"}
-            kwargs.update({"auth": auth, "headers": headers})
+            kwargs.update({"headers": headers})
 
-        with requests.get(f"http://{SERVER_ADDRESS}:{SERVER_PORT}/api/stream_console_output", **kwargs) as r:
-            r.encoding = "utf-8"
+        kwargs["timeout"] = (5, 1)
 
-            characters = []
-            n_brackets = 0
+        while not self._exit:
+            try:
+                with requests.get(
+                    f"http://{SERVER_ADDRESS}:{SERVER_PORT}/api/stream_console_output",
+                    **kwargs,
+                ) as r:
+                    r.encoding = "utf-8"
 
-            for ch in r.iter_content(decode_unicode=True):
-                # Note, that some output must be received from the server before the loop exits
-                if self._exit:
-                    break
-
-                characters.append(ch)
-                if ch == "{":
-                    n_brackets += 1
-                elif ch == "}":
-                    n_brackets -= 1
-
-                # If the received buffer ('characters') is not empty and the message contains
-                #   equal number of opening and closing brackets then consider the message complete.
-                if characters and not n_brackets:
-                    line = "".join(characters)
                     characters = []
+                    n_brackets = 0
 
-                    print(f"{line}")
-                    self.received_data_buffer.append(json.loads(line))
+                    for ch in r.iter_content(decode_unicode=True):
+                        if self._exit:
+                            return
+
+                        characters.append(ch)
+                        if ch == "{":
+                            n_brackets += 1
+                        elif ch == "}":
+                            n_brackets -= 1
+
+                        if characters and not n_brackets:
+                            line = "".join(characters)
+                            characters = []
+
+                            print(f"{line}")
+                            self.received_data_buffer.append(json.loads(line))
+            except requests.exceptions.ReadTimeout:
+                continue
 
     def stop(self):
         """
@@ -81,7 +87,10 @@ class _ReceiveStreamedConsoleOutput(threading.Thread):
 
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_stream_console_output_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port  # noqa F811
+    monkeypatch,
+    re_manager_cmd,
+    fastapi_server_fs,
+    zmq_port,  # noqa F811
 ):
     """
     Test for ``stream_console_output`` API
@@ -103,7 +112,9 @@ def test_http_server_stream_console_output_1(
     resp1 = request_to_json(
         "post",
         "/queue/item/add",
-        json={"item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}},
+        json={
+            "item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
+        },
     )
     assert resp1["success"] is True
     assert resp1["qsize"] == 1
@@ -122,7 +133,10 @@ def test_http_server_stream_console_output_1(
     assert resp2["items"][0] == resp1["item"]
     assert resp2["running_item"] == {}
 
-    rsc.join()
+    rsc.join(timeout=10)
+    assert not rsc.is_alive(), (
+        "Timed out waiting for stream_console_output thread to terminate"
+    )
 
     assert len(rsc.received_data_buffer) >= 2, pprint.pformat(rsc.received_data_buffer)
 
@@ -134,9 +148,9 @@ def test_http_server_stream_console_output_1(
             if emsg in msg["msg"]:
                 expected_messages.remove(emsg)
 
-    assert (
-        not expected_messages
-    ), f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
+    assert not expected_messages, (
+        f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
+    )
 
 
 _script1 = r"""
@@ -160,7 +174,11 @@ lines
 @pytest.mark.parametrize("zmq_encoding", (None, "json", "msgpack"))
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port, zmq_encoding  # noqa F811
+    monkeypatch,
+    re_manager_cmd,
+    fastapi_server_fs,
+    zmq_port,
+    zmq_encoding,  # noqa F811
 ):
     """
     Test for ``console_output`` API (not a streaming version).
@@ -238,7 +256,10 @@ def test_http_server_console_output_1(
 
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_update_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port  # noqa F811
+    monkeypatch,
+    re_manager_cmd,
+    fastapi_server_fs,
+    zmq_port,  # noqa F811
 ):
     """
     Test for ``console_output`` API (not a streaming version).
@@ -270,7 +291,9 @@ def test_http_server_console_output_update_1(
     assert resp2a["console_output_msgs"] == []
 
     # Download ALL existing messages
-    resp2b = request_to_json("get", "/console_output_update", json={"last_msg_uid": "ALL"})
+    resp2b = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": "ALL"}
+    )
     assert resp2b["success"] is True
     assert resp2b["msg"] == ""
     assert resp2b["last_msg_uid"] == last_msg_uid_1
@@ -286,7 +309,9 @@ def test_http_server_console_output_update_1(
     ttime.sleep(3)
     assert wait_for_manager_state_idle(timeout=10)
 
-    resp4a = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1})
+    resp4a = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1}
+    )
     last_msg_uid_2 = resp4a["last_msg_uid"]
     assert last_msg_uid_2 != last_msg_uid_1
     console_output = resp4a["console_output_msgs"]
@@ -294,7 +319,9 @@ def test_http_server_console_output_update_1(
     assert expected_output in console_output_text
     assert console_output_text.count(expected_output) == 1
 
-    resp4b = request_to_json("get", "/console_output_update", json={"last_msg_uid": "ALL"})
+    resp4b = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": "ALL"}
+    )
     assert resp4b["last_msg_uid"] == last_msg_uid_2
     console_output = resp4b["console_output_msgs"]
     console_output_text = "".join([_["msg"] for _ in console_output])
@@ -311,7 +338,9 @@ def test_http_server_console_output_update_1(
     assert wait_for_manager_state_idle(timeout=10)
 
     # Download the lastest updates
-    resp6a = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_2})
+    resp6a = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_2}
+    )
     last_msg_uid_3 = resp6a["last_msg_uid"]
     assert last_msg_uid_3 != last_msg_uid_2
     console_output = resp6a["console_output_msgs"]
@@ -321,7 +350,9 @@ def test_http_server_console_output_update_1(
 
     # Download the updates using 'old' UID. The script was uploaded twice, so the output should
     #   contain two copies of the printed output
-    resp6b = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1})
+    resp6b = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_1}
+    )
     assert resp6b["last_msg_uid"] == last_msg_uid_3
     console_output = resp6b["console_output_msgs"]
     console_output_text = "".join([_["msg"] for _ in console_output])
@@ -329,7 +360,9 @@ def test_http_server_console_output_update_1(
     assert console_output_text.count(expected_output) == 2
 
     # No updates are expected since last request
-    resp6c = request_to_json("get", "/console_output_update", json={"last_msg_uid": last_msg_uid_3})
+    resp6c = request_to_json(
+        "get", "/console_output_update", json={"last_msg_uid": last_msg_uid_3}
+    )
     assert resp6c["last_msg_uid"] == last_msg_uid_3
     assert resp6c["console_output_msgs"] == []
 
@@ -379,7 +412,10 @@ class _ReceiveConsoleOutputSocket(threading.Thread):
 
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_socket_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port  # noqa F811
+    monkeypatch,
+    re_manager_cmd,
+    fastapi_server_fs,
+    zmq_port,  # noqa F811
 ):
     """
     Test for ``/console_output/ws`` websocket
@@ -402,7 +438,9 @@ def test_http_server_console_output_socket_1(
     resp1 = request_to_json(
         "post",
         "/queue/item/add",
-        json={"item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}},
+        json={
+            "item": {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
+        },
     )
     assert resp1["success"] is True
     assert resp1["qsize"] == 1
@@ -421,7 +459,10 @@ def test_http_server_console_output_socket_1(
     assert resp2["items"][0] == resp1["item"]
     assert resp2["running_item"] == {}
 
-    rsc.join()
+    rsc.join(timeout=10)
+    assert not rsc.is_alive(), (
+        "Timed out waiting for console_output websocket thread to terminate"
+    )
 
     assert len(rsc.received_data_buffer) >= 2, pprint.pformat(rsc.received_data_buffer)
 
@@ -433,6 +474,6 @@ def test_http_server_console_output_socket_1(
             if emsg in msg["msg"]:
                 expected_messages.remove(emsg)
 
-    assert (
-        not expected_messages
-    ), f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
+    assert not expected_messages, (
+        f"Messages {expected_messages} were not found in captured output: {pprint.pformat(buffer)}"
+    )
