@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import requests
+from bluesky_queueserver.manager.tests.common import re_manager_cmd as _re_manager_cmd
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
@@ -81,6 +82,11 @@ class _ReceiveStreamedConsoleOutput(threading.Thread):
 
     def __del__(self):
         self.stop()
+
+
+@pytest.fixture
+def re_manager_cmd():
+    return _re_manager_cmd
 
 
 @pytest.mark.parametrize("zmq_port", (None, 60619))

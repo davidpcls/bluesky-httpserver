@@ -64,6 +64,25 @@ wait_for_ldap_bind() {
     return 1
 }
 
+wait_for_ldap_test_user_bind() {
+    local container_id="$1"
+    local timeout_seconds="${2:-60}"
+    local deadline=$((SECONDS + timeout_seconds))
+
+    while (( SECONDS < deadline )); do
+        if docker exec "$container_id" ldapwhoami \
+            -x \
+            -H "ldap://127.0.0.1:389" \
+            -D "cn=user01,ou=users,$LDAP_BASE_DN" \
+            -w "password1" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    return 1
+}
+
 print_ldap_diagnostics() {
     local container_id="${1:-}"
 
@@ -157,4 +176,11 @@ if ! wait_for_ldap_bind "$CONTAINER_ID" 120; then
 fi
 
 seed_ldap_test_users "$CONTAINER_ID"
+
+if ! wait_for_ldap_test_user_bind "$CONTAINER_ID" 60; then
+    echo "LDAP test-user bind did not become ready in time." >&2
+    print_ldap_diagnostics "$CONTAINER_ID"
+    exit 1
+fi
+
 docker ps

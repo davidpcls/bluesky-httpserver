@@ -26,7 +26,7 @@ jobs:
     - name: Fetch tags
       run: git fetch --tags --prune --unshallow
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - uses: shogo82148/actions-setup-redis@v1
@@ -64,6 +64,8 @@ jobs:
 
         pip list
     - name: Test with pytest
+      env:
+        PYTEST_ADDOPTS: "--durations=20"
       run: |
         coverage run -m pytest -vv
         coverage report -m
