@@ -21,6 +21,8 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     wait_for_manager_state_idle,
 )
 
+re_manager_cmd = _re_manager_cmd
+
 
 class _ReceiveStreamedConsoleOutput(threading.Thread):
     """
@@ -82,11 +84,6 @@ class _ReceiveStreamedConsoleOutput(threading.Thread):
 
     def __del__(self):
         self.stop()
-
-
-@pytest.fixture
-def re_manager_cmd():
-    return _re_manager_cmd
 
 
 @pytest.mark.parametrize("zmq_port", (None, 60619))
