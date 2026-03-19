@@ -128,4 +128,4 @@ locally, especially if the respective server code was not changed. The tests wil
 run on GitHub CI in properly configured environment and indicate if there is an issue.
 To run these tests locally, start OpenLDAP server in Docker container::
 
-  $ source continuous_integration/scripts/start_LDAP.sh
+  $ source start_LDAP.sh

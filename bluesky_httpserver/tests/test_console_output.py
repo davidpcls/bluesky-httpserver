@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 import requests
-from bluesky_queueserver.manager.tests.common import re_manager_cmd as _re_manager_cmd
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
@@ -20,8 +19,6 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     wait_for_environment_to_be_created,
     wait_for_manager_state_idle,
 )
-
-re_manager_cmd = _re_manager_cmd
 
 
 class _ReceiveStreamedConsoleOutput(threading.Thread):
