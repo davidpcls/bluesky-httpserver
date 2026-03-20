@@ -277,7 +277,7 @@ def re_manager_cmd():  # noqa: F811
     manager_sequence = 0
 
     def _close_manager():
-        nonlocal manager, failed_to_start
+        nonlocal manager
 
         if manager is None:
             return
@@ -300,9 +300,7 @@ def re_manager_cmd():  # noqa: F811
         finally:
             manager = None
 
-    def create_re_manager(
-        params=None, *, stdout=sys.stdout, stderr=sys.stdout, set_redis_name_prefix=True
-    ):
+    def create_re_manager(params=None, *, stdout=sys.stdout, stderr=sys.stdout, set_redis_name_prefix=True):
         nonlocal manager, failed_to_start, manager_sequence
 
         failed_to_start = False
@@ -383,9 +381,7 @@ def add_plans_to_queue():
     }
     plan2 = {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
     for plan in (plan1, plan2, plan2):
-        resp2, _ = zmq_secure_request(
-            "queue_item_add", {"item": plan, "user": user, "user_group": user_group}
-        )
+        resp2, _ = zmq_secure_request("queue_item_add", {"item": plan, "user": user, "user_group": user_group})
         assert resp2 and (resp2.get("success") is True), str(resp2)
 
 
@@ -414,16 +410,12 @@ def request_to_json(
         kwargs.update({"auth": auth, "headers": headers})
 
     method = getattr(requests, request_type)
-    resp = method(
-        f"http://{SERVER_ADDRESS}:{SERVER_PORT}{request_prefix}{path}", **kwargs
-    )
+    resp = method(f"http://{SERVER_ADDRESS}:{SERVER_PORT}{request_prefix}{path}", **kwargs)
     resp = resp.json()
     return resp
 
 
-def wait_for_environment_to_be_created(
-    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
-):
+def wait_for_environment_to_be_created(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
     """Wait for environment to be created with timeout."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
@@ -435,25 +427,19 @@ def wait_for_environment_to_be_created(
     return False
 
 
-def wait_for_environment_to_be_closed(
-    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
-):
+def wait_for_environment_to_be_closed(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
     """Wait for environment to be closed with timeout."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
         ttime.sleep(polling_period)
         resp = request_to_json("get", "/status", api_key=api_key)
-        if (not resp["worker_environment_exists"]) and (
-            resp["manager_state"] == "idle"
-        ):
+        if (not resp["worker_environment_exists"]) and (resp["manager_state"] == "idle"):
             return True
 
     return False
 
 
-def wait_for_queue_execution_to_complete(
-    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
-):
+def wait_for_queue_execution_to_complete(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
     """Wait for for queue execution to complete."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
@@ -477,9 +463,7 @@ def wait_for_manager_state_idle(timeout, polling_period=0.2, api_key=API_KEY_FOR
     return False
 
 
-def wait_for_manager_state_idle_or_paused(
-    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
-):
+def wait_for_manager_state_idle_or_paused(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
     """Wait until manager is in 'idle' state."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:

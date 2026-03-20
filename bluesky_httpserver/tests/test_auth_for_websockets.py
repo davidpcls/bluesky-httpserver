@@ -7,7 +7,7 @@ import pytest
 from websockets.sync.client import connect
 
 from .conftest import fastapi_server_fs  # noqa: F401
-from .conftest import (
+from .conftest import (  # noqa: F401
     SERVER_ADDRESS,
     SERVER_PORT,
     re_manager_cmd,
@@ -68,9 +68,7 @@ class _ReceiveSystemInfoSocket(threading.Thread):
             additional_headers = {}
 
         try:
-            with connect(
-                websocket_uri, additional_headers=additional_headers
-            ) as websocket:
+            with connect(websocket_uri, additional_headers=additional_headers) as websocket:
                 while not self._exit:
                     try:
                         msg_json = websocket.recv(timeout=0.1, decode=False)

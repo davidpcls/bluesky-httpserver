@@ -11,7 +11,6 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     SERVER_ADDRESS,
     SERVER_PORT,
     fastapi_server_fs,
-    re_manager_cmd,
     request_to_json,
     set_qserver_zmq_encoding,
     wait_for_environment_to_be_closed,
@@ -37,9 +36,7 @@ class _ReceiveSystemInfoSocket(threading.Thread):
         websocket_uri = f"ws://{SERVER_ADDRESS}:{SERVER_PORT}/api{self._endpoint}"
         additional_headers = {"Authorization": f"ApiKey {self._api_key}"}
         try:
-            with connect(
-                websocket_uri, additional_headers=additional_headers
-            ) as websocket:
+            with connect(websocket_uri, additional_headers=additional_headers) as websocket:
                 while not self._exit:
                     try:
                         msg_json = websocket.recv(timeout=0.1, decode=False)
@@ -68,8 +65,8 @@ class _ReceiveSystemInfoSocket(threading.Thread):
 @pytest.mark.parametrize("endpoint", ["/info/ws", "/status/ws"])
 def test_http_server_system_info_socket_1(
     monkeypatch,
-    re_manager_cmd,
-    fastapi_server_fs,
+    re_manager_cmd,  # noqa: F811
+    fastapi_server_fs,  # noqa: F811
     zmq_port,
     endpoint,  # noqa F811
 ):
@@ -127,10 +124,6 @@ def test_http_server_system_info_socket_1(
 
     # In the test we opened and then closed the environment, so let's check if it is reflected in
     #   the collected streamed status.
-    wrk_env_exists = [
-        _["msg"]["status"]["worker_environment_exists"]
-        for _ in buffer
-        if "status" in _["msg"]
-    ]
+    wrk_env_exists = [_["msg"]["status"]["worker_environment_exists"] for _ in buffer if "status" in _["msg"]]
     assert wrk_env_exists.count(True) >= 0, wrk_env_exists
     assert wrk_env_exists.count(False) >= 0, wrk_env_exists
