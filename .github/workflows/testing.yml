@@ -29,6 +29,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
     - uses: shogo82148/actions-setup-redis@v1
       with:
         redis-version: "7.x"
@@ -36,8 +37,8 @@ jobs:
       run: |
         # sudo apt install redis
 
-        # Start LDAP
-        bash continuous_integration/scripts/start_LDAP.sh
+        # Start LDAP in background (wait/seed later)
+        bash continuous_integration/scripts/start_LDAP.sh --start-only
 
         # These packages are installed in the base environment but may be older
         # versions. Explicitly upgrade them because they often create
@@ -56,11 +57,13 @@ jobs:
         pip install .
         popd
 
-        pip install --upgrade pip
         pip install .
         pip install -r requirements-dev.txt
         # pip install "pydantic${{ matrix.pydantic-version }}"
         # pip install bluesky==1.11.0
+
+        # Wait for LDAP readiness and seed test users
+        bash continuous_integration/scripts/start_LDAP.sh --wait-seed
 
         pip list
     - name: Test with pytest

@@ -9,6 +9,7 @@ LDAP_PORT="${LDAP_PORT:-1389}"
 LDAP_ADMIN_DN="cn=admin,dc=example,dc=org"
 LDAP_ADMIN_PASSWORD="adminpassword"
 LDAP_BASE_DN="dc=example,dc=org"
+MODE="${1:-full}"
 
 compose_cmd() {
     if [[ -n "$COMPOSE_PROJECT" ]]; then
@@ -160,36 +161,65 @@ uid: user02
 userPassword: password2"
 }
 
-# Start LDAP server in docker container
-compose_cmd up -d
-CONTAINER_ID="$(get_openldap_container_id)"
-if [[ -z "$CONTAINER_ID" ]]; then
-    echo "Unable to determine LDAP container id from compose project." >&2
-    print_ldap_diagnostics
-    exit 1
-fi
+start_ldap_container() {
+    compose_cmd up -d
+    CONTAINER_ID="$(get_openldap_container_id)"
+    if [[ -z "$CONTAINER_ID" ]]; then
+        echo "Unable to determine LDAP container id from compose project." >&2
+        print_ldap_diagnostics
+        exit 1
+    fi
+}
 
-if ! wait_for_ldap 120; then
-    echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} did not become reachable in time." >&2
-    print_ldap_diagnostics "$CONTAINER_ID"
-    exit 1
-fi
+wait_and_seed_ldap_container() {
+    if [[ -z "${CONTAINER_ID:-}" ]]; then
+        CONTAINER_ID="$(get_openldap_container_id)"
+    fi
+    if [[ -z "$CONTAINER_ID" ]]; then
+        echo "Unable to determine LDAP container id from compose project. Start LDAP first." >&2
+        print_ldap_diagnostics
+        exit 1
+    fi
 
-echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} is reachable. Waiting for slapd initialization..."
-sleep 3
+    if ! wait_for_ldap 120; then
+        echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} did not become reachable in time." >&2
+        print_ldap_diagnostics "$CONTAINER_ID"
+        exit 1
+    fi
 
-if ! wait_for_ldap_bind "$CONTAINER_ID" 120; then
-    echo "LDAP admin bind did not become ready in time." >&2
-    print_ldap_diagnostics "$CONTAINER_ID"
-    exit 1
-fi
+    echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} is reachable. Waiting for slapd initialization..."
+    sleep 3
 
-seed_ldap_test_users "$CONTAINER_ID"
+    if ! wait_for_ldap_bind "$CONTAINER_ID" 120; then
+        echo "LDAP admin bind did not become ready in time." >&2
+        print_ldap_diagnostics "$CONTAINER_ID"
+        exit 1
+    fi
 
-if ! wait_for_ldap_test_user_bind "$CONTAINER_ID" 60; then
-    echo "LDAP test-user bind did not become ready in time." >&2
-    print_ldap_diagnostics "$CONTAINER_ID"
-    exit 1
-fi
+    seed_ldap_test_users "$CONTAINER_ID"
+
+    if ! wait_for_ldap_test_user_bind "$CONTAINER_ID" 60; then
+        echo "LDAP test-user bind did not become ready in time." >&2
+        print_ldap_diagnostics "$CONTAINER_ID"
+        exit 1
+    fi
+}
+
+case "$MODE" in
+    full)
+        start_ldap_container
+        wait_and_seed_ldap_container
+        ;;
+    --start-only)
+        start_ldap_container
+        ;;
+    --wait-seed)
+        wait_and_seed_ldap_container
+        ;;
+    *)
+        echo "Usage: $0 [full|--start-only|--wait-seed]" >&2
+        exit 2
+        ;;
+esac
 
 docker ps
