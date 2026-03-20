@@ -46,16 +46,19 @@ wait_for_ldap_bind() {
     local container_id="$1"
     local timeout_seconds="${2:-60}"
     local deadline=$((SECONDS + timeout_seconds))
+    local rc=0
 
     while (( SECONDS < deadline )); do
-        if docker exec "$container_id" ldapsearch \
+        rc=0
+        docker exec "$container_id" ldapsearch \
             -x \
             -H "ldap://127.0.0.1:389" \
             -D "$LDAP_ADMIN_DN" \
             -w "$LDAP_ADMIN_PASSWORD" \
             -b "$LDAP_BASE_DN" \
             -s base \
-            "(objectclass=*)" dn >/dev/null 2>&1; then
+            "(objectclass=*)" dn >/dev/null 2>&1 || rc=$?
+        if [[ "$rc" -eq 0 ]]; then
             return 0
         fi
         sleep 1
@@ -68,13 +71,16 @@ wait_for_ldap_test_user_bind() {
     local container_id="$1"
     local timeout_seconds="${2:-60}"
     local deadline=$((SECONDS + timeout_seconds))
+    local rc=0
 
     while (( SECONDS < deadline )); do
-        if docker exec "$container_id" ldapwhoami \
+        rc=0
+        docker exec "$container_id" ldapwhoami \
             -x \
             -H "ldap://127.0.0.1:389" \
             -D "cn=user01,ou=users,$LDAP_BASE_DN" \
-            -w "password1" >/dev/null 2>&1; then
+            -w "password1" >/dev/null 2>&1 || rc=$?
+        if [[ "$rc" -eq 0 ]]; then
             return 0
         fi
         sleep 1
@@ -168,6 +174,9 @@ if ! wait_for_ldap 120; then
     print_ldap_diagnostics "$CONTAINER_ID"
     exit 1
 fi
+
+echo "LDAP port ${LDAP_HOST}:${LDAP_PORT} is reachable. Waiting for slapd initialization..."
+sleep 3
 
 if ! wait_for_ldap_bind "$CONTAINER_ID" 120; then
     echo "LDAP admin bind did not become ready in time." >&2

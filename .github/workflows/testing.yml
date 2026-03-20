@@ -37,7 +37,7 @@ jobs:
         # sudo apt install redis
 
         # Start LDAP
-        source continuous_integration/scripts/start_LDAP.sh
+        bash continuous_integration/scripts/start_LDAP.sh
 
         # These packages are installed in the base environment but may be older
         # versions. Explicitly upgrade them because they often create
