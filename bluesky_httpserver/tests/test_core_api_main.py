@@ -9,7 +9,6 @@ from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
     ip_kernel_simple_client,
-    re_manager,
     re_manager_cmd,
     re_manager_pc_copy,
 )

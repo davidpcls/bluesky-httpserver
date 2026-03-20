@@ -6,7 +6,6 @@ from bluesky_queueserver import generate_zmq_keys
 from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
-    re_manager,
     re_manager_cmd,
     re_manager_pc_copy,
     set_qserver_zmq_address,

@@ -6,7 +6,6 @@ import time as ttime
 
 import pytest
 import requests
-from bluesky_queueserver.manager.tests.common import re_manager  # noqa F401
 from xprocess import ProcessStarter
 
 from bluesky_httpserver.authorization import (
@@ -27,7 +26,10 @@ from bluesky_httpserver.authorization._defaults import (
     _DEFAULT_USERNAME_SINGLE_USER,
 )
 from bluesky_httpserver.config_schemas.loading import ConfigError
-from bluesky_httpserver.tests.conftest import request_to_json, setup_server_with_config_file
+from bluesky_httpserver.tests.conftest import (
+    request_to_json,
+    setup_server_with_config_file,
+)
 
 # ====================================================================================
 #                                API ACCESS POLICIES

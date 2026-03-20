@@ -6,12 +6,69 @@ import requests
 from bluesky_queueserver.manager.comms import zmq_single_request
 from bluesky_queueserver.manager.tests.common import re_manager_cmd  # noqa: F401
 from bluesky_queueserver.manager.tests.common import set_qserver_zmq_encoding  # noqa: F401
+from bluesky_queueserver.manager.tests.common import (
+    ReManager,
+    condition_manager_idle,
+    wait_for_condition,
+)
 from xprocess import ProcessStarter
 
 import bluesky_httpserver.server as bqss
 
 SERVER_ADDRESS = "localhost"
 SERVER_PORT = "60610"
+
+
+def _worker_index():
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+    if worker.startswith("gw"):
+        try:
+            return int(worker[2:])
+        except ValueError:
+            return 0
+    return 0
+
+
+def _ports_for_worker():
+    base = 60600 + _worker_index() * 100
+    return {
+        "server_port": str(base + 10),
+        "zmq_control_server": f"tcp://*:{base + 15}",
+        "zmq_control_client": f"tcp://localhost:{base + 15}",
+        "zmq_info_server": f"tcp://*:{base + 25}",
+        "zmq_info_client": f"tcp://localhost:{base + 25}",
+    }
+
+
+def _xprocess_name(name):
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "local")
+    return f"{name}_{worker}"
+
+
+def pytest_configure(config):
+    del config
+    global SERVER_PORT
+    ports = _ports_for_worker()
+    SERVER_PORT = ports["server_port"]
+    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = ports["zmq_control_client"]
+    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = ports["zmq_info_client"]
+    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = ports["zmq_control_client"]
+
+
+def _wait_for_manager_ready(timeout=10):
+    if not wait_for_condition(time=timeout, condition=condition_manager_idle):
+        raise TimeoutError("Timeout: RE Manager failed to start.")
+
+
+def _reset_queue_mode_and_clear_queue():
+    resp, msg = zmq_single_request("queue_mode_set", params={"mode": "default"})
+    if resp["success"] is not True:
+        raise RuntimeError(msg)
+
+    resp, msg = zmq_single_request("queue_clear")
+    if resp["success"] is not True:
+        raise RuntimeError(msg)
+
 
 # Single-user API key used for most of the tests
 API_KEY_FOR_TESTS = "APIKEYFORTESTS"
@@ -45,12 +102,13 @@ def fastapi_server(xprocess):
         args = f"uvicorn --host={SERVER_ADDRESS} --port {SERVER_PORT} {bqss.__name__}:app".split()
         # args = f"start-bluesky-httpserver --host={SERVER_ADDRESS} --port {SERVER_PORT}".split()
 
-    xprocess.ensure("fastapi_server", Starter)
+    proc_name = _xprocess_name("fastapi_server")
+    xprocess.ensure(proc_name, Starter)
     _wait_for_http_server_ready()
 
     yield
 
-    xprocess.getinfo("fastapi_server").terminate()
+    xprocess.getinfo(proc_name).terminate()
 
 
 @pytest.fixture
@@ -76,12 +134,78 @@ def fastapi_server_fs(xprocess):
             pattern = "Bluesky HTTP Server started successfully"
             args = f"uvicorn --host={http_server_host} --port {http_server_port} {bqss.__name__}:app".split()
 
-        xprocess.ensure("fastapi_server", Starter)
+        proc_name = _xprocess_name("fastapi_server")
+        xprocess.ensure(proc_name, Starter)
         _wait_for_http_server_ready()
 
     yield start
 
-    xprocess.getinfo("fastapi_server").terminate()
+    xprocess.getinfo(_xprocess_name("fastapi_server")).terminate()
+
+
+@pytest.fixture
+def re_manager():  # noqa: F811
+    ports = _ports_for_worker()
+
+    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = ports["zmq_control_client"]
+    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = ports["zmq_info_client"]
+    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = ports["zmq_control_client"]
+
+    manager = ReManager(
+        params=[
+            f"--zmq-control-addr={ports['zmq_control_server']}",
+            f"--zmq-info-addr={ports['zmq_info_server']}",
+        ]
+    )
+    failed_to_start = False
+
+    try:
+        _wait_for_manager_ready()
+        _reset_queue_mode_and_clear_queue()
+        yield manager
+    except Exception:
+        failed_to_start = True
+        raise
+    finally:
+        if failed_to_start:
+            manager.kill_manager()
+        else:
+            try:
+                manager.stop_manager(timeout=30)
+            except Exception:
+                manager.kill_manager()
+
+
+@pytest.fixture(scope="module")
+def re_manager_module():
+    ports = _ports_for_worker()
+    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = ports["zmq_control_client"]
+    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = ports["zmq_info_client"]
+    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = ports["zmq_control_client"]
+
+    manager = ReManager(
+        params=[
+            f"--zmq-control-addr={ports['zmq_control_server']}",
+            f"--zmq-info-addr={ports['zmq_info_server']}",
+        ]
+    )
+    failed_to_start = False
+
+    try:
+        _wait_for_manager_ready()
+        _reset_queue_mode_and_clear_queue()
+        yield manager
+    except Exception:
+        failed_to_start = True
+        raise
+    finally:
+        if failed_to_start:
+            manager.kill_manager()
+        else:
+            try:
+                manager.stop_manager(timeout=30)
+            except Exception:
+                manager.kill_manager()
 
 
 def setup_server_with_config_file(*, config_file_str, tmpdir, monkeypatch):

@@ -68,7 +68,7 @@ jobs:
         pip list
     - name: Test with pytest
       env:
-        PYTEST_ADDOPTS: "--durations=20"
+        PYTEST_ADDOPTS: "--durations=20 -n auto --dist=loadfile"
       run: |
         coverage run -m pytest -vv
         coverage report -m

@@ -10,6 +10,7 @@ isort
 pre-commit
 pytest
 pytest-asyncio
+pytest-xdist
 pytest-xprocess
 py
 respx
