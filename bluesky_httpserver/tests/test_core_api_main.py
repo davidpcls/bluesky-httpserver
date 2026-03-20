@@ -9,7 +9,6 @@ from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
     ip_kernel_simple_client,
-    re_manager_cmd,
     re_manager_pc_copy,
 )
 
@@ -18,6 +17,7 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     SERVER_PORT,
     add_plans_to_queue,
     fastapi_server,
+    re_manager_cmd,
     request_to_json,
     wait_for_environment_to_be_closed,
     wait_for_environment_to_be_created,

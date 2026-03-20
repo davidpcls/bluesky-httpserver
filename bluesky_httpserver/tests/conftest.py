@@ -1,15 +1,15 @@
 import os
+import sys
 import time as ttime
 
 import pytest
 import requests
-from bluesky_queueserver.manager.comms import zmq_single_request
-from bluesky_queueserver.manager.tests.common import re_manager_cmd  # noqa: F401
 from bluesky_queueserver.manager.tests.common import set_qserver_zmq_encoding  # noqa: F401
 from bluesky_queueserver.manager.tests.common import (
     ReManager,
     condition_manager_idle,
     wait_for_condition,
+    zmq_secure_request,
 )
 from xprocess import ProcessStarter
 
@@ -29,14 +29,72 @@ def _worker_index():
     return 0
 
 
+def _worker_name():
+    return os.environ.get("PYTEST_XDIST_WORKER", "local")
+
+
 def _ports_for_worker():
-    base = 60600 + _worker_index() * 100
+    # Avoid the queue-server default ports (60615/60625), which may already be
+    # occupied in shared/dev environments.
+    base = 62000 + _worker_index() * 100
     return {
         "server_port": str(base + 10),
         "zmq_control_server": f"tcp://*:{base + 15}",
         "zmq_control_client": f"tcp://localhost:{base + 15}",
         "zmq_info_server": f"tcp://*:{base + 25}",
         "zmq_info_client": f"tcp://localhost:{base + 25}",
+    }
+
+
+def _redis_name_prefix(*, scope, sequence=None):
+    parts = ["qs_unit_tests_httpserver", _worker_name(), scope]
+    if sequence is not None:
+        parts.append(str(sequence))
+    return "_".join(parts)
+
+
+def _get_cli_option_value(params, option):
+    option_with_eq = f"{option}="
+    for n, value in enumerate(params):
+        if value.startswith(option_with_eq):
+            return value[len(option_with_eq) :]
+        if value == option and n + 1 < len(params):
+            return params[n + 1]
+    return None
+
+
+def _server_to_client_zmq_addr(addr):
+    if addr.startswith("tcp://*:"):
+        return f"tcp://localhost:{addr.rsplit(':', 1)[1]}"
+    if addr.startswith("tcp://0.0.0.0:"):
+        return f"tcp://localhost:{addr.rsplit(':', 1)[1]}"
+    return addr
+
+
+def _set_zmq_env(control_addr, info_addr):
+    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = control_addr
+    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = info_addr
+    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = control_addr
+
+
+def _ensure_manager_addresses_in_params(params):
+    ports = _ports_for_worker()
+
+    control_addr = _get_cli_option_value(params, "--zmq-control-addr")
+    if control_addr is None:
+        control_addr = ports["zmq_control_server"]
+        params.append(f"--zmq-control-addr={control_addr}")
+
+    info_addr = _get_cli_option_value(params, "--zmq-info-addr")
+    if info_addr is None:
+        info_addr = ports["zmq_info_server"]
+        params.append(f"--zmq-info-addr={info_addr}")
+
+    return {
+        "control_server": control_addr,
+        "control_client": _server_to_client_zmq_addr(control_addr),
+        "info_server": info_addr,
+        "info_client": _server_to_client_zmq_addr(info_addr),
     }
 
 
@@ -60,13 +118,17 @@ def _wait_for_manager_ready(timeout=10):
         raise TimeoutError("Timeout: RE Manager failed to start.")
 
 
-def _reset_queue_mode_and_clear_queue():
-    resp, msg = zmq_single_request("queue_mode_set", params={"mode": "default"})
-    if resp["success"] is not True:
+def _reset_queue_mode():
+    resp, msg = zmq_secure_request("queue_mode_set", params={"mode": "default"})
+    if not resp or resp.get("success") is not True:
         raise RuntimeError(msg)
 
-    resp, msg = zmq_single_request("queue_clear")
-    if resp["success"] is not True:
+
+def _reset_queue_mode_and_clear_queue():
+    _reset_queue_mode()
+
+    resp, msg = zmq_secure_request("queue_clear")
+    if not resp or resp.get("success") is not True:
         raise RuntimeError(msg)
 
 
@@ -147,15 +209,15 @@ def fastapi_server_fs(xprocess):
 def re_manager():  # noqa: F811
     ports = _ports_for_worker()
 
-    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = ports["zmq_control_client"]
-    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = ports["zmq_info_client"]
-    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = ports["zmq_control_client"]
+    _set_zmq_env(ports["zmq_control_client"], ports["zmq_info_client"])
 
     manager = ReManager(
         params=[
             f"--zmq-control-addr={ports['zmq_control_server']}",
             f"--zmq-info-addr={ports['zmq_info_server']}",
-        ]
+            f"--redis-name-prefix={_redis_name_prefix(scope='re_manager')}",
+        ],
+        set_redis_name_prefix=False,
     )
     failed_to_start = False
 
@@ -179,15 +241,15 @@ def re_manager():  # noqa: F811
 @pytest.fixture(scope="module")
 def re_manager_module():
     ports = _ports_for_worker()
-    os.environ["QSERVER_ZMQ_CONTROL_ADDRESS"] = ports["zmq_control_client"]
-    os.environ["QSERVER_ZMQ_INFO_ADDRESS"] = ports["zmq_info_client"]
-    os.environ["_TEST_QSERVER_ZMQ_ADDRESS_"] = ports["zmq_control_client"]
+    _set_zmq_env(ports["zmq_control_client"], ports["zmq_info_client"])
 
     manager = ReManager(
         params=[
             f"--zmq-control-addr={ports['zmq_control_server']}",
             f"--zmq-info-addr={ports['zmq_info_server']}",
-        ]
+            f"--redis-name-prefix={_redis_name_prefix(scope='re_manager_module')}",
+        ],
+        set_redis_name_prefix=False,
     )
     failed_to_start = False
 
@@ -206,6 +268,78 @@ def re_manager_module():
                 manager.stop_manager(timeout=30)
             except Exception:
                 manager.kill_manager()
+
+
+@pytest.fixture
+def re_manager_cmd():  # noqa: F811
+    manager = None
+    failed_to_start = False
+    manager_sequence = 0
+
+    def _close_manager():
+        nonlocal manager, failed_to_start
+
+        if manager is None:
+            return
+
+        if failed_to_start:
+            try:
+                manager.kill_manager()
+            except Exception:
+                pass
+            manager = None
+            return
+
+        try:
+            manager.stop_manager(timeout=30)
+        except Exception:
+            try:
+                manager.kill_manager()
+            except Exception:
+                pass
+        finally:
+            manager = None
+
+    def create_re_manager(
+        params=None, *, stdout=sys.stdout, stderr=sys.stdout, set_redis_name_prefix=True
+    ):
+        nonlocal manager, failed_to_start, manager_sequence
+
+        failed_to_start = False
+        manager_sequence += 1
+
+        _close_manager()
+
+        params = list(params or [])
+        addrs = _ensure_manager_addresses_in_params(params)
+        _set_zmq_env(addrs["control_client"], addrs["info_client"])
+
+        # Always force per-worker/per-create Redis prefixes to avoid collisions in parallel runs.
+        if _get_cli_option_value(params, "--redis-name-prefix") is None:
+            params.append(
+                f"--redis-name-prefix={_redis_name_prefix(scope='re_manager_cmd', sequence=manager_sequence)}"
+            )
+        # We explicitly manage the Redis name prefix and do not want defaults from upstream fixture logic.
+        set_redis_name_prefix = False
+
+        manager = ReManager(
+            params=params,
+            stdout=stdout,
+            stderr=stderr,
+            set_redis_name_prefix=set_redis_name_prefix,
+        )
+
+        if not wait_for_condition(time=10, condition=condition_manager_idle):
+            failed_to_start = True
+            manager.kill_manager()
+            raise TimeoutError("Timeout: RE Manager failed to start.")
+
+        _reset_queue_mode()
+        return manager
+
+    yield create_re_manager
+
+    _close_manager()
 
 
 def setup_server_with_config_file(*, config_file_str, tmpdir, monkeypatch):
@@ -236,8 +370,8 @@ def add_plans_to_queue():
     Clear the queue and add 3 fixed plans to the queue.
     Raises an exception if clearing the queue or adding plans fails.
     """
-    resp1, _ = zmq_single_request("queue_clear")
-    assert resp1["success"] is True, str(resp1)
+    resp1, _ = zmq_secure_request("queue_clear")
+    assert resp1 and (resp1.get("success") is True), str(resp1)
 
     user_group = _user_group
     user = "HTTP unit test setup"
@@ -249,8 +383,10 @@ def add_plans_to_queue():
     }
     plan2 = {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
     for plan in (plan1, plan2, plan2):
-        resp2, _ = zmq_single_request("queue_item_add", {"item": plan, "user": user, "user_group": user_group})
-        assert resp2["success"] is True, str(resp2)
+        resp2, _ = zmq_secure_request(
+            "queue_item_add", {"item": plan, "user": user, "user_group": user_group}
+        )
+        assert resp2 and (resp2.get("success") is True), str(resp2)
 
 
 def request_to_json(
@@ -278,12 +414,16 @@ def request_to_json(
         kwargs.update({"auth": auth, "headers": headers})
 
     method = getattr(requests, request_type)
-    resp = method(f"http://{SERVER_ADDRESS}:{SERVER_PORT}{request_prefix}{path}", **kwargs)
+    resp = method(
+        f"http://{SERVER_ADDRESS}:{SERVER_PORT}{request_prefix}{path}", **kwargs
+    )
     resp = resp.json()
     return resp
 
 
-def wait_for_environment_to_be_created(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
+def wait_for_environment_to_be_created(
+    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
+):
     """Wait for environment to be created with timeout."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
@@ -295,19 +435,25 @@ def wait_for_environment_to_be_created(timeout, polling_period=0.2, api_key=API_
     return False
 
 
-def wait_for_environment_to_be_closed(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
+def wait_for_environment_to_be_closed(
+    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
+):
     """Wait for environment to be closed with timeout."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
         ttime.sleep(polling_period)
         resp = request_to_json("get", "/status", api_key=api_key)
-        if (not resp["worker_environment_exists"]) and (resp["manager_state"] == "idle"):
+        if (not resp["worker_environment_exists"]) and (
+            resp["manager_state"] == "idle"
+        ):
             return True
 
     return False
 
 
-def wait_for_queue_execution_to_complete(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
+def wait_for_queue_execution_to_complete(
+    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
+):
     """Wait for for queue execution to complete."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:
@@ -331,7 +477,9 @@ def wait_for_manager_state_idle(timeout, polling_period=0.2, api_key=API_KEY_FOR
     return False
 
 
-def wait_for_manager_state_idle_or_paused(timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS):
+def wait_for_manager_state_idle_or_paused(
+    timeout, polling_period=0.2, api_key=API_KEY_FOR_TESTS
+):
     """Wait until manager is in 'idle' state."""
     time_start = ttime.time()
     while ttime.time() < time_start + timeout:

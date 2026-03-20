@@ -6,7 +6,6 @@ from bluesky_queueserver import generate_zmq_keys
 from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
-    re_manager_cmd,
     re_manager_pc_copy,
     set_qserver_zmq_address,
     set_qserver_zmq_public_key,
@@ -17,6 +16,7 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     SERVER_PORT,
     add_plans_to_queue,
     fastapi_server_fs,
+    re_manager_cmd,
     request_to_json,
     setup_server_with_config_file,
     wait_for_environment_to_be_created,

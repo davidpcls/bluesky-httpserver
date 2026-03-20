@@ -3,7 +3,7 @@ import copy
 import pprint
 
 import pytest
-from bluesky_queueserver.manager.comms import zmq_single_request
+from bluesky_queueserver.manager.tests.common import zmq_secure_request
 
 from bluesky_httpserver.authorization._defaults import (
     _DEFAULT_RESOURCE_ACCESS_GROUP,
@@ -341,7 +341,9 @@ def test_authentication_and_authorization_02(
     Check that returned scopes match the default scopes.
     """
     config = config_test_all_default_roles
-    setup_server_with_config_file(config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch)
+    setup_server_with_config_file(
+        config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch
+    )
     fastapi_server_fs()
 
     username__to_role = {
@@ -357,7 +359,9 @@ def test_authentication_and_authorization_02(
     for username, role in username__to_role.items():
         print(f"Testing access for the username {username!r}")
 
-        resp1 = request_to_json("post", "/auth/provider/toy/token", login=(username, username + "_password"))
+        resp1 = request_to_json(
+            "post", "/auth/provider/toy/token", login=(username, username + "_password")
+        )
         assert "access_token" in resp1
         token = resp1["access_token"]
 
@@ -754,8 +758,8 @@ def test_resource_access_01(
     setup_server_with_config_file(config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch)
     fastapi_server_fs()
 
-    resp_clear, _ = zmq_single_request("queue_clear")
-    assert resp_clear["success"] is True, str(resp_clear)
+    resp_clear, _ = zmq_secure_request("queue_clear")
+    assert resp_clear and (resp_clear.get("success") is True), str(resp_clear)
 
     username, password = "bob", "bob_password"
 
