@@ -4,7 +4,6 @@ import threading
 import time as ttime
 
 import pytest
-from bluesky_queueserver.manager.tests.common import re_manager_cmd  # noqa F401
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
@@ -65,7 +64,11 @@ class _ReceiveSystemInfoSocket(threading.Thread):
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 @pytest.mark.parametrize("endpoint", ["/info/ws", "/status/ws"])
 def test_http_server_system_info_socket_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port, endpoint  # noqa F811
+    monkeypatch,
+    re_manager_cmd,  # noqa: F811
+    fastapi_server_fs,  # noqa: F811
+    zmq_port,
+    endpoint,  # noqa F811
 ):
     """
     Test for ``/info/ws`` and ``/status/ws`` websockets

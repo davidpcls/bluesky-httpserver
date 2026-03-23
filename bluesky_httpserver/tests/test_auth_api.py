@@ -1,11 +1,10 @@
 import pprint
 import time as ttime
 
-from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd  # noqa F401
-
 from bluesky_httpserver.authorization._defaults import _DEFAULT_ROLES
 
 from .conftest import fastapi_server_fs  # noqa: F401
+from .conftest import re_manager_module  # noqa: F401
 from .conftest import request_to_json, setup_server_with_config_file
 
 config_toy_test = """
@@ -38,7 +37,7 @@ api_access:
 def test_api_auth_post_apikey_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -58,7 +57,10 @@ def test_api_auth_post_apikey_01(
 
     # TEST1-1: generate API key using access token: 'inherit' scope
     resp3 = request_to_json(
-        "post", "/auth/apikey", json={"expires_in": 900, "note": "API key for testing"}, token=token
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "note": "API key for testing"},
+        token=token,
     )
     assert "secret" in resp3, pprint.pformat(resp3)
     assert "note" in resp3, pprint.pformat(resp3)
@@ -72,7 +74,10 @@ def test_api_auth_post_apikey_01(
 
     # TEST1-2: generate API key using the existing API key: 'inherit' scope
     resp4 = request_to_json(
-        "post", "/auth/apikey", json={"expires_in": 900, "note": "API key - 2"}, api_key=api_key1
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "note": "API key - 2"},
+        api_key=api_key1,
     )
     assert "secret" in resp4, pprint.pformat(resp4)
     assert "note" in resp4, pprint.pformat(resp4)
@@ -86,7 +91,12 @@ def test_api_auth_post_apikey_01(
 
     # TEST1-3: generate API key using the existing API key: fixed scope
     scopes3 = ["read:status", "user:apikeys"]
-    resp5 = request_to_json("post", "/auth/apikey", json={"expires_in": 900, "scopes": scopes3}, api_key=api_key2)
+    resp5 = request_to_json(
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "scopes": scopes3},
+        api_key=api_key2,
+    )
     assert "secret" in resp5, pprint.pformat(resp5)
     assert "note" in resp5, pprint.pformat(resp5)
     assert resp5["note"] is None
@@ -112,13 +122,23 @@ def test_api_auth_post_apikey_01(
 
     # TEST2-2: generate API key using API key: using scopes that are not allowed
     scopes5 = ["read:status", "user:apikeys", "read:queue"]
-    resp7 = request_to_json("post", "/auth/apikey", json={"expires_in": 900, "scopes": scopes5}, api_key=api_key4)
+    resp7 = request_to_json(
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "scopes": scopes5},
+        api_key=api_key4,
+    )
     assert "detail" in resp7, pprint.pformat(resp7)
     assert "must be a subset of the allowed principal's scopes" in resp7["detail"]
 
     # TEST2-3: generate API key using API key: fixed scope
     scopes6 = ["read:status"]
-    resp8 = request_to_json("post", "/auth/apikey", json={"expires_in": 900, "scopes": scopes6}, api_key=api_key4)
+    resp8 = request_to_json(
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "scopes": scopes6},
+        api_key=api_key4,
+    )
     assert "secret" in resp8, pprint.pformat(resp8)
     assert "note" in resp8, pprint.pformat(resp8)
     assert resp8["note"] is None
@@ -133,7 +153,7 @@ def test_api_auth_post_apikey_01(
 def test_api_auth_get_apikey_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -148,7 +168,10 @@ def test_api_auth_get_apikey_01(
     token = resp1["access_token"]
 
     resp3 = request_to_json(
-        "post", "/auth/apikey", json={"expires_in": 900, "note": "API key for testing"}, token=token
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "note": "API key for testing"},
+        token=token,
     )
     assert "secret" in resp3, pprint.pformat(resp3)
     assert "note" in resp3, pprint.pformat(resp3)
@@ -168,7 +191,7 @@ def test_api_auth_get_apikey_01(
 def test_api_auth_delete_apikey_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -185,7 +208,10 @@ def test_api_auth_delete_apikey_01(
     token = resp1["access_token"]
 
     resp3 = request_to_json(
-        "post", "/auth/apikey", json={"expires_in": 900, "note": "API key for testing"}, token=token
+        "post",
+        "/auth/apikey",
+        json={"expires_in": 900, "note": "API key for testing"},
+        token=token,
     )
     assert "secret" in resp3, pprint.pformat(resp3)
     assert "note" in resp3, pprint.pformat(resp3)
@@ -210,7 +236,7 @@ def test_api_auth_delete_apikey_01(
 def test_api_auth_scopes_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -239,7 +265,7 @@ def test_api_auth_scopes_01(
 def test_api_auth_session_refresh_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -268,7 +294,7 @@ def test_api_auth_session_refresh_01(
 def test_api_auth_whoami_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -300,7 +326,7 @@ def test_api_auth_whoami_01(
 def test_api_auth_session_revoke_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -338,7 +364,7 @@ def test_api_auth_session_revoke_01(
 def test_api_auth_logout_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -355,7 +381,7 @@ def test_api_auth_logout_01(
 def test_api_admin_auth_principal_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -399,7 +425,7 @@ def test_api_admin_auth_principal_01(
 def test_api_admin_auth_principal_apikey_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -427,7 +453,10 @@ def test_api_admin_auth_principal_apikey_01(
 
     # Get an API key for the user ('inherit' scope)
     resp4 = request_to_json(
-        "post", f"/auth/principal/{principals['alice']}/apikey", json={"expires_in": 900}, token=token
+        "post",
+        f"/auth/principal/{principals['alice']}/apikey",
+        json={"expires_in": 900},
+        token=token,
     )
     assert "secret" in resp4
     api_key1 = resp4["secret"]
@@ -455,7 +484,10 @@ def test_api_admin_auth_principal_apikey_01(
     resp6 = request_to_json(
         "post",
         f"/auth/principal/{principals['alice']}/apikey",
-        json={"expires_in": 900, "scopes": ["admin:apikeys", "read:status", "read:console"]},
+        json={
+            "expires_in": 900,
+            "scopes": ["admin:apikeys", "read:status", "read:console"],
+        },
         token=token,
     )
     assert "detail" in resp6

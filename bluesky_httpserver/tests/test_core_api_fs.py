@@ -5,19 +5,21 @@ import pytest
 from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
-    re_manager,
-    re_manager_cmd,
-    re_manager_pc_copy,
     set_qserver_zmq_address,
     set_qserver_zmq_public_key,
 )
-from bluesky_queueserver.manager.tests.plan_lists import create_excel_file_from_plan_list, plan_list_sample
+from bluesky_queueserver.manager.tests.plan_lists import (
+    create_excel_file_from_plan_list,
+    plan_list_sample,
+)
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
     SERVER_ADDRESS,
     SERVER_PORT,
     add_plans_to_queue,
     fastapi_server_fs,
+    re_manager_cmd,
+    re_manager_pc_copy,
     request_to_json,
     wait_for_environment_to_be_created,
     wait_for_manager_state_idle,
@@ -26,8 +28,17 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
 
 # Plans used in most of the tests: '_plan1' and '_plan2' are quickly executed '_plan3' runs for 5 seconds.
 _plan1 = {"name": "count", "args": [["det1", "det2"]], "item_type": "plan"}
-_plan2 = {"name": "scan", "args": [["det1", "det2"], "motor", -1, 1, 10], "item_type": "plan"}
-_plan3 = {"name": "count", "args": [["det1", "det2"]], "kwargs": {"num": 5, "delay": 1}, "item_type": "plan"}
+_plan2 = {
+    "name": "scan",
+    "args": [["det1", "det2"], "motor", -1, 1, 10],
+    "item_type": "plan",
+}
+_plan3 = {
+    "name": "count",
+    "args": [["det1", "det2"]],
+    "kwargs": {"num": 5, "delay": 1},
+    "item_type": "plan",
+}
 
 
 def _create_test_excel_file1(tmp_path, *, plan_params, col_names):

@@ -3,7 +3,7 @@ import copy
 import pprint
 
 import pytest
-from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd  # noqa F401
+from bluesky_queueserver.manager.tests.common import zmq_secure_request
 
 from bluesky_httpserver.authorization._defaults import (
     _DEFAULT_RESOURCE_ACCESS_GROUP,
@@ -20,6 +20,7 @@ from bluesky_httpserver.authorization._defaults import (
 )
 
 from .conftest import fastapi_server_fs  # noqa: F401
+from .conftest import re_manager_module  # noqa: F401
 from .conftest import request_to_json, setup_server_with_config_file
 
 config_noauth_with_anonymous_access = """
@@ -211,10 +212,22 @@ api_access:
         (config_toy_with_anonymous_access, "", False, True, False),
         (config_toy_without_anonymous_access, "", False, False, False),
         (config_noauth_with_anonymous_access, authorization_dict, True, True, False),
-        (config_noauth_without_anonymous_access, authorization_dict, True, False, False),
+        (
+            config_noauth_without_anonymous_access,
+            authorization_dict,
+            True,
+            False,
+            False,
+        ),
         (config_noauth_with_anonymous_access, "", True, True, False),
         (config_noauth_without_anonymous_access, "", True, False, False),
-        ("", authorization_dict, True, False, False),  # No authentication settings in config
+        (
+            "",
+            authorization_dict,
+            True,
+            False,
+            False,
+        ),  # No authentication settings in config
         ("", "", True, False, False),  # No config file
     ],
 )
@@ -222,7 +235,7 @@ api_access:
 def test_authentication_and_authorization_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
     cfg,
     access_cfg,
@@ -249,7 +262,9 @@ def test_authentication_and_authorization_01(
     api_access_set = "api_access" in config
 
     if config:
-        setup_server_with_config_file(config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch)
+        setup_server_with_config_file(
+            config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch
+        )
     fastapi_server_fs()
 
     # Test if anonymous 'public' access works
@@ -262,7 +277,9 @@ def test_authentication_and_authorization_01(
         assert "Not enough permissions" in resp1["detail"]
 
     # Make sure that the anonymous 'single-user' access is not allowed
-    resp2 = request_to_json("get", "/status")  # By default, the single user API key is sent
+    resp2 = request_to_json(
+        "get", "/status"
+    )  # By default, the single user API key is sent
     if single_user_access:
         assert "msg" in resp2, pprint.pformat(resp1)
         assert "RE Manager" in resp2["msg"]
@@ -280,7 +297,9 @@ def test_authentication_and_authorization_01(
     auth_fail_msg = "Incorrect username or password" if providers_set else "Not Found"
 
     # Login using token: should work in all cases
-    resp3 = request_to_json("post", "/auth/provider/toy/token", login=("bob", "bob_password"))
+    resp3 = request_to_json(
+        "post", "/auth/provider/toy/token", login=("bob", "bob_password")
+    )
     if token_access:
         assert "access_token" in resp3
         token = resp3["access_token"]
@@ -292,12 +311,16 @@ def test_authentication_and_authorization_01(
         assert login_fail_msg in resp3["detail"]
 
     # Login using incorrect username
-    resp5 = request_to_json("post", "/auth/provider/toy/token", login=("incorrect_name", "bob_password"))
+    resp5 = request_to_json(
+        "post", "/auth/provider/toy/token", login=("incorrect_name", "bob_password")
+    )
     assert "detail" in resp5
     assert auth_fail_msg in resp5["detail"]
 
     # Login using invalid password
-    resp6 = request_to_json("post", "/auth/provider/toy/token", login=("bob", "invalid_password"))
+    resp6 = request_to_json(
+        "post", "/auth/provider/toy/token", login=("bob", "invalid_password")
+    )
     assert "detail" in resp6
     assert auth_fail_msg in resp6["detail"]
 
@@ -310,7 +333,7 @@ def test_authentication_and_authorization_01(
 def test_authentication_and_authorization_02(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -354,7 +377,7 @@ def test_authentication_and_authorization_02(
 def test_authentication_and_authorization_03(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
     config,
     set_ev,
@@ -388,7 +411,7 @@ def test_authentication_and_authorization_03(
 def test_authentication_and_authorization_04(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -426,7 +449,7 @@ def test_authentication_and_authorization_04(
 def test_authentication_and_authorization_05(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -466,7 +489,7 @@ def test_authentication_and_authorization_05(
 def test_authentication_and_authorization_06(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -595,7 +618,7 @@ def test_authentication_and_authorization_06(
 def test_authentication_and_authorization_07(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -641,7 +664,7 @@ def test_authentication_and_authorization_07(
 def test_authentication_and_authorization_08(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
 ):
     """
@@ -719,7 +742,7 @@ resource_access:
 def test_resource_access_01(
     tmpdir,
     monkeypatch,
-    re_manager,  # noqa: F811
+    re_manager_module,  # noqa: F811
     fastapi_server_fs,  # noqa: F811
     config,
     group,
@@ -730,6 +753,9 @@ def test_resource_access_01(
     """
     setup_server_with_config_file(config_file_str=config, tmpdir=tmpdir, monkeypatch=monkeypatch)
     fastapi_server_fs()
+
+    resp_clear, _ = zmq_secure_request("queue_clear")
+    assert resp_clear and (resp_clear.get("success") is True), str(resp_clear)
 
     username, password = "bob", "bob_password"
 

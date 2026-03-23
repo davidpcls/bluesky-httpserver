@@ -26,9 +26,10 @@ jobs:
     - name: Fetch tags
       run: git fetch --tags --prune --unshallow
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
     - uses: shogo82148/actions-setup-redis@v1
       with:
         redis-version: "7.x"
@@ -36,14 +37,8 @@ jobs:
       run: |
         # sudo apt install redis
 
-        pushd ..
-        git clone https://github.com/bitnami/containers.git
-        cd containers/bitnami/openldap/2.6/debian-12
-        docker build -t bitnami/openldap:latest .
-        popd
-
-        # Start LDAP
-        source start_LDAP.sh
+        # Start LDAP in background (wait/seed later)
+        bash continuous_integration/scripts/start_LDAP.sh --start-only
 
         # These packages are installed in the base environment but may be older
         # versions. Explicitly upgrade them because they often create
@@ -62,14 +57,29 @@ jobs:
         pip install .
         popd
 
-        pip install --upgrade pip
         pip install .
         pip install -r requirements-dev.txt
         # pip install "pydantic${{ matrix.pydantic-version }}"
         # pip install bluesky==1.11.0
 
+        # Wait for LDAP readiness and seed test users
+        bash continuous_integration/scripts/start_LDAP.sh --wait-seed
+
         pip list
     - name: Test with pytest
+      env:
+        PYTEST_ADDOPTS: "--durations=20 -n auto --dist=loadfile"
       run: |
         coverage run -m pytest -vv
         coverage report -m
+    - name: Dump LDAP diagnostics on failure
+      if: failure()
+      run: |
+        docker ps
+        docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml ps
+        LDAP_CONTAINER_ID=$(docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml ps -q openldap | tr -d '[:space:]')
+        if [ -n "$LDAP_CONTAINER_ID" ]; then
+          docker logs --tail 200 "$LDAP_CONTAINER_ID"
+        else
+          docker compose -f continuous_integration/docker-configs/ldap-docker-compose.yml logs --tail 200 openldap
+        fi
