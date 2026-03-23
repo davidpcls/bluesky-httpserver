@@ -8,6 +8,7 @@ from bluesky_queueserver.manager.tests.common import set_qserver_zmq_encoding  #
 from bluesky_queueserver.manager.tests.common import (
     ReManager,
     condition_manager_idle,
+    copy_default_profile_collection,
     wait_for_condition,
     zmq_secure_request,
 )
@@ -257,6 +258,40 @@ def re_manager_module():
         _wait_for_manager_ready()
         _reset_queue_mode_and_clear_queue()
         yield manager
+    except Exception:
+        failed_to_start = True
+        raise
+    finally:
+        if failed_to_start:
+            manager.kill_manager()
+        else:
+            try:
+                manager.stop_manager(timeout=30)
+            except Exception:
+                manager.kill_manager()
+
+
+@pytest.fixture
+def re_manager_pc_copy(tmp_path):  # noqa: F811
+    ports = _ports_for_worker()
+    _set_zmq_env(ports["zmq_control_client"], ports["zmq_info_client"])
+
+    pc_path = copy_default_profile_collection(tmp_path)
+
+    manager = ReManager(
+        params=[
+            f"--startup-dir={pc_path}",
+            f"--zmq-control-addr={ports['zmq_control_server']}",
+            f"--zmq-info-addr={ports['zmq_info_server']}",
+            f"--redis-name-prefix={_redis_name_prefix(scope='re_manager_pc_copy')}",
+        ],
+        set_redis_name_prefix=False,
+    )
+    failed_to_start = False
+
+    try:
+        _wait_for_manager_ready()
+        yield pc_path
     except Exception:
         failed_to_start = True
         raise

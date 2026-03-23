@@ -5,7 +5,6 @@ import pytest
 from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
-    re_manager_pc_copy,
     set_qserver_zmq_address,
     set_qserver_zmq_public_key,
 )
@@ -20,6 +19,7 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     add_plans_to_queue,
     fastapi_server_fs,
     re_manager_cmd,
+    re_manager_pc_copy,
     request_to_json,
     wait_for_environment_to_be_created,
     wait_for_manager_state_idle,

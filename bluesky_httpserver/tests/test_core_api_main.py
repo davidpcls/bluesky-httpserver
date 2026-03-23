@@ -9,7 +9,6 @@ from bluesky_queueserver.manager.tests.common import (  # noqa F401
     append_code_to_last_startup_file,
     copy_default_profile_collection,
     ip_kernel_simple_client,
-    re_manager_pc_copy,
 )
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
@@ -18,6 +17,7 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     add_plans_to_queue,
     fastapi_server,
     re_manager_cmd,
+    re_manager_pc_copy,
     request_to_json,
     wait_for_environment_to_be_closed,
     wait_for_environment_to_be_created,
@@ -1709,7 +1709,14 @@ def test_http_server_kernel_interrupt_01(
     kernel_int_params = {}
 
     if option == "ip_client":
-        ip_kernel_simple_client.start()
+        for _ in range(5):
+            try:
+                ip_kernel_simple_client.start()
+                break
+            except (TypeError, KeyError):
+                ttime.sleep(1)
+        else:
+            pytest.fail("Failed to start IP kernel client after 5 attempts")
         ip_kernel_simple_client.execute_with_check(_busy_script_01)
     elif option == "script":
         resp2 = request_to_json("post", "/script/upload", json={"script": _busy_script_01})
