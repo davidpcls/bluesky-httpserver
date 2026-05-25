@@ -11,6 +11,7 @@ from bluesky_queueserver.manager.tests.common import (  # noqa F401
     ip_kernel_simple_client,
     re_manager,
     re_manager_cmd,
+    re_manager_factory,
     re_manager_pc_copy,
 )
 
@@ -1473,6 +1474,24 @@ def test_http_server_re_runs(re_manager, fastapi_server, suffix, expected_n_item
     assert resp2a["run_list_uid"] == run_list_uid
 
     assert wait_for_manager_state_idle(30), "Timeout"
+
+
+def test_http_server_re_metadata(re_manager, fastapi_server):  # noqa F811
+    """
+    Basic test for ``/re/metadata`` API.
+    """
+    request_to_json("post", "/environment/open")
+    assert wait_for_environment_to_be_created(10), "Timeout"
+
+    resp1 = request_to_json("get", "/re/metadata")
+    print(resp1)
+    assert resp1["success"] is True
+    assert "re_metadata" in resp1
+    assert "versions" in resp1["re_metadata"]
+    assert resp1["re_metadata"]["metadata_key"] == "metadata_value"
+
+    request_to_json("post", "/environment/close")
+    assert wait_for_environment_to_be_closed(10), "Timeout"
 
 
 _sample_trivial_plan1 = """

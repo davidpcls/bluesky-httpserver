@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import requests
+from bluesky_queueserver.manager.tests.common import re_manager_cmd, re_manager_factory  # noqa F401
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
