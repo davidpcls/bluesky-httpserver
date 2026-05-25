@@ -209,6 +209,15 @@ def create_user(db, identity_provider, id):
     return principal
 
 
+def get_or_create_principal(db, identity_provider, id):
+    identity = db.query(Identity).filter(Identity.id == id).filter(Identity.provider == identity_provider).first()
+    if identity is None:
+        principal = create_user(db, identity_provider, id)
+    else:
+        principal = identity.principal
+    return principal
+
+
 def lookup_valid_session(db, session_id):
     if isinstance(session_id, int):
         # Old versions of tiled used an integer sid.

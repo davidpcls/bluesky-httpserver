@@ -4,9 +4,10 @@ import functools
 import logging
 import re
 import secrets
+import uuid
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import Any, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 import httpx
 from cachetools import TTLCache, cached
@@ -189,17 +190,18 @@ properties:
     def end_session_endpoint(self) -> str:
         return cast(str, self._config_from_oidc_url.get("end_session_endpoint"))
 
-    @cached(TTLCache(maxsize=1, ttl=timedelta(days=7).total_seconds()))
+    @cached(TTLCache(maxsize=1, ttl=timedelta(hours=1).total_seconds()))
     def keys(self) -> List[str]:
         return httpx.get(self.jwks_uri).raise_for_status().json().get("keys", [])
 
-    def decode_token(self, token: str) -> dict[str, Any]:
+    def decode_token(self, id_token: str, access_token: Optional[str] = None) -> dict[str, Any]:
         return jwt.decode(
-            token,
+            id_token,
             key=self.keys(),
             algorithms=self.id_token_signing_alg_values_supported,
             audience=self._audience,
             issuer=self.issuer,
+            access_token=access_token,
         )
 
     async def authenticate(self, request: Request) -> Optional[UserSessionState]:
@@ -223,13 +225,14 @@ properties:
             logger.error("Authentication error: %r", response_body)
             return None
         id_token = response_body["id_token"]
+        access_token = response_body.get("access_token")
         # NOTE: We decode the id_token, not access_token, because:
         # 1. The id_token is the OIDC identity assertion meant for the client
         # 2. Some providers (like Microsoft Entra) return opaque access_tokens
         #    that cannot be decoded with the JWKS keys when the resource is
         #    a first-party Microsoft API (e.g., Graph API with User.Read scope)
         try:
-            verified_body = self.decode_token(id_token)
+            verified_body = self.decode_token(id_token, access_token)
         except JWTError:
             logger.exception(
                 "Authentication error. Unverified token: %r",
@@ -310,18 +313,139 @@ properties:
         return self._oidc_bearer
 
 
+class EntraAuthenticator(ProxiedOIDCAuthenticator):
+    def __init__(
+        self,
+        audience: str,
+        client_id: str,
+        well_known_uri: str,
+        device_flow_client_id: str,
+        extra_scopes: Optional[List[str]] = None,
+        confirmation_message: str = "",
+        scopes_map: Optional[Dict[str, list[str]]] = None,
+        client_secret: str = "",
+        redirect_on_success: Optional[str] = None,
+    ):
+        self.scopes_map = scopes_map if scopes_map is not None else {}
+        self.extra_scopes = extra_scopes or []
+        super().__init__(
+            audience,
+            client_id,
+            well_known_uri,
+            device_flow_client_id,
+            scopes=None,
+            confirmation_message=confirmation_message,
+        )
+        if client_secret:
+            self._client_secret = Secret(client_secret)
+        self.redirect_on_success = redirect_on_success
+
+        @property
+        def scopes(self):
+            mapped = set()
+            for tiled_scopes in self.scopes_map.values():
+                mapped.update(tiled_scopes)
+            return list(mapped)
+
+        @scopes.setter
+        def scopes(self, value):
+            pass
+
+    def decode_token(self, id_token: str, access_token: Optional[str] = None) -> dict[str, Any]:
+        claims = super().decode_token(id_token, access_token)
+        original_sub = claims.get("sub")
+        issuer = claims.get("iss", "")
+        claims["sub"] = uuid.uuid5(uuid.NAMESPACE_URL, f"{issuer}|{original_sub}").hex
+        claims["entra_sub"] = original_sub
+
+        claims["entra_username"] = (
+            claims.get("nameID") or claims.get("preferred_username") or claims.get("upn") or claims.get("email")
+        )
+
+        if user := claims.get("entra_username"):
+            user = user.strip()
+            if "\\" in user:
+                user = user.rsplit("\\", 1)[-1]
+            elif "@" in user:
+                user = user.split("@", 1)[0]
+        else:
+            user = original_sub
+            logger.warning(
+                "EntraAuthenticator: no human-readable username claim found in token "
+                "(checked nameID, preferred_username, upn, email). Falling back to Entra sub=%r.",
+                original_sub,
+            )
+        claims["user"] = user
+
+        scp_raw = claims.get("scp", "")
+        tiled_scope_set = set()
+        if scp_raw:
+            for scope in scp_raw.split(" "):
+                mapped_scopes = self.scopes_map.get(scope)
+                if mapped_scopes is None:
+                    logger.warning("Unmapped Entra scope in 'scp': %s", scope)
+                    continue
+                tiled_scope_set.update(mapped_scopes)
+        else:
+            for mapped_scopes in self.scopes_map.values():
+                tiled_scope_set.update(mapped_scopes)
+        claims["scope"] = " ".join(tiled_scope_set)
+        return claims
+
+    async def authenticate(self, request: Request) -> Optional[UserSessionState]:
+        code = request.query_params.get("code")
+        if not code:
+            logger.warning("Authentication failed: No authorization code parameter provided.")
+            return None
+        redirect_uri = f"{get_root_url(request)}{request.url.path}"
+        response = await exchange_code(
+            self.token_endpoint,
+            code,
+            self._client_id,
+            self._client_secret.get_secret_value(),
+            redirect_uri,
+            extra_scopes=self.extra_scopes,
+        )
+        response_body = response.json()
+        if response.is_error:
+            logger.error("Authentication error: %r", response_body)
+            return None
+        id_token = response_body["id_token"]
+        access_token = response_body.get("access_token")
+        refresh_token = response_body.get("refresh_token")
+        try:
+            verified_body = self.decode_token(id_token, access_token)
+        except JWTError:
+            logger.exception(
+                "Authentication error. Unverified token: %r",
+                jwt.get_unverified_claims(id_token),
+            )
+            return None
+        username = verified_body.get("user") or verified_body["sub"]
+        state: dict[str, Any] = {}
+        if access_token:
+            state["entra_access_token"] = access_token
+        if refresh_token:
+            state["entra_refresh_token"] = refresh_token
+        return UserSessionState(username, state)
+
+
 async def exchange_code(
     token_uri: str,
     auth_code: str,
     client_id: str,
     client_secret: str,
     redirect_uri: str,
+    extra_scopes: Optional[List[str]] = None,
 ) -> httpx.Response:
     """Method that talks to an IdP to exchange a code for an access_token and/or id_token
     Args:
         token_url ([type]): [description]
         auth_code ([type]): [description]
     """
+    scopes = {"openid", "offline_access"}
+    if extra_scopes:
+        scopes.update(extra_scopes)
     auth_value = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     response = httpx.post(
         url=token_uri,
@@ -331,6 +455,7 @@ async def exchange_code(
             "redirect_uri": redirect_uri,
             "code": auth_code,
             "client_secret": client_secret,
+            "scope": " ".join(sorted(scopes)),
         },
         headers={"Authorization": f"Basic {auth_value}"},
     )

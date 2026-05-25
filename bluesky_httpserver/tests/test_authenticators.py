@@ -10,8 +10,16 @@ from jose import ExpiredSignatureError, jwt
 from jose.backends import RSAKey
 from respx import MockRouter
 from starlette.datastructures import URL, QueryParams
+from starlette.requests import Request
 
-from ..authenticators import LDAPAuthenticator, OIDCAuthenticator, ProxiedOIDCAuthenticator, UserSessionState
+from .._authentication import build_authorize_route
+from ..authenticators import (
+    LDAPAuthenticator,
+    OIDCAuthenticator,
+    ProxiedOIDCAuthenticator,
+    UserSessionState,
+    exchange_code,
+)
 
 LDAP_TEST_HOST = os.environ.get("QSERVER_TEST_LDAP_HOST", "localhost")
 LDAP_TEST_PORT = int(os.environ.get("QSERVER_TEST_LDAP_PORT", "1389"))
@@ -233,22 +241,21 @@ async def test_OIDCAuthenticator_mock(
 
     mock_request = create_mock_oidc_request({"code": "test-auth-code"})
 
-    def mock_jwt_decode(*args, **kwargs):
+    decode_calls = {}
+
+    def mock_decode_token(id_token, access_token=None):
+        decode_calls["id_token"] = id_token
+        decode_calls["access_token"] = access_token
         return mock_jwt_payload
 
-    def mock_jwk_construct(*args, **kwargs):
-        class MockJWK:
-            pass
-
-        return MockJWK()
-
-    monkeypatch.setattr("jose.jwt.decode", mock_jwt_decode)
-    monkeypatch.setattr("jose.jwk.construct", mock_jwk_construct)
+    monkeypatch.setattr(authenticator, "decode_token", mock_decode_token)
 
     user_session = await authenticator.authenticate(mock_request)
 
     assert user_session is not None
     assert user_session.user_name == "0009-0008-8698-7745"
+    assert decode_calls["id_token"] == "mock-id-token"
+    assert decode_calls["access_token"] == "mock-access-token"
 
 
 @pytest.mark.asyncio
@@ -293,3 +300,60 @@ async def test_OIDCAuthenticator_token_exchange_failure(
 
     result = await authenticator.authenticate(mock_request)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_requests_offline_access(monkeypatch):
+    captured = {}
+
+    def mock_post(*, url, data, headers):
+        captured["url"] = url
+        captured["data"] = data
+        captured["headers"] = headers
+        return httpx.Response(200, json={"id_token": "X", "access_token": "Y"})
+
+    monkeypatch.setattr("httpx.post", mock_post)
+
+    await exchange_code(
+        token_uri="https://idp.example/token",
+        auth_code="authcode",
+        client_id="client-id",
+        client_secret="client-secret",
+        redirect_uri="https://server.example/callback",
+        extra_scopes=["api://example/access_as_user"],
+    )
+
+    assert captured["url"] == "https://idp.example/token"
+    assert set(captured["data"]["scope"].split(" ")) == {
+        "openid",
+        "offline_access",
+        "api://example/access_as_user",
+    }
+
+
+@pytest.mark.asyncio
+async def test_authorize_route_requests_extra_scopes_and_prompt():
+    class _Authenticator:
+        client_id = "test-client"
+        extra_scopes = ["api://example/access_as_user"]
+        authorization_endpoint = httpx.URL("https://idp.example/auth")
+
+    route = build_authorize_route(_Authenticator(), "oidc")
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "path": "/api/auth/provider/oidc/authorize",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"host", b"localhost:8000")],
+            "server": ("localhost", 8000),
+            "client": ("127.0.0.1", 54321),
+        }
+    )
+    response = await route(request)
+    location = response.headers["location"]
+    assert "prompt=login" in location
+    assert "offline_access" in location
+    assert "openid" in location
+    assert "api%3A%2F%2Fexample%2Faccess_as_user" in location

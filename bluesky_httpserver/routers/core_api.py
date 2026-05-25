@@ -1152,12 +1152,13 @@ class WebSocketMonitor:
 
 @router.websocket("/console_output/ws")
 async def console_output_ws(websocket: WebSocket, scopes=["read:console"]):
-    principal = get_current_principal_websocket(websocket=websocket, scopes=scopes)
+    principal = await get_current_principal_websocket(websocket=websocket, scopes=scopes)
     if not principal:
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    await websocket.accept()
+    if not getattr(websocket.state, "already_accepted", False):
+        await websocket.accept()
     q = SR.console_output_stream.add_queue(websocket)
     wsmon = WebSocketMonitor(websocket)
     wsmon.start()
@@ -1178,12 +1179,13 @@ async def console_output_ws(websocket: WebSocket, scopes=["read:console"]):
 
 @router.websocket("/status/ws")
 async def status_ws(websocket: WebSocket, scopes=["read:monitor"]):
-    principal = get_current_principal_websocket(websocket=websocket, scopes=scopes)
+    principal = await get_current_principal_websocket(websocket=websocket, scopes=scopes)
     if not principal:
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    await websocket.accept()
+    if not getattr(websocket.state, "already_accepted", False):
+        await websocket.accept()
     q = SR.system_info_stream.add_queue_status(websocket)
     wsmon = WebSocketMonitor(websocket)
     wsmon.start()
@@ -1205,12 +1207,13 @@ async def status_ws(websocket: WebSocket, scopes=["read:monitor"]):
 
 @router.websocket("/info/ws")
 async def info_ws(websocket: WebSocket, scopes=["read:monitor"]):
-    principal = get_current_principal_websocket(websocket=websocket, scopes=scopes)
+    principal = await get_current_principal_websocket(websocket=websocket, scopes=scopes)
     if not principal:
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    await websocket.accept()
+    if not getattr(websocket.state, "already_accepted", False):
+        await websocket.accept()
     q = SR.system_info_stream.add_queue_info(websocket)
     wsmon = WebSocketMonitor(websocket)
     wsmon.start()
