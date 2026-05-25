@@ -190,6 +190,7 @@ class AboutAuthenticationProvider(pydantic.BaseModel):
     mode: AuthenticationMode
     links: Dict[str, str]
     confirmation_message: Optional[str] = None
+    extra_scopes: Optional[List[str]] = None
 
 
 class AboutAuthenticationLinks(pydantic.BaseModel):

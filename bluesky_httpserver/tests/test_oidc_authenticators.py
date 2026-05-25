@@ -10,7 +10,7 @@ from jose import ExpiredSignatureError, jwt
 from jose.backends import RSAKey
 from respx import MockRouter
 
-from bluesky_httpserver.authenticators import OIDCAuthenticator, ProxiedOIDCAuthenticator
+from bluesky_httpserver.authenticators import EntraAuthenticator, OIDCAuthenticator, ProxiedOIDCAuthenticator
 
 
 @pytest.fixture
@@ -217,3 +217,64 @@ class TestProxiedOIDCAuthenticator:
 
         assert authenticator.scopes == ["openid", "profile", "email"]
         assert authenticator.device_flow_client_id == "test_cli_client"
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+class TestEntraAuthenticator:
+    def test_entra_scope_mapping_and_username(
+        self,
+        mock_oidc_server: MockRouter,
+        oidc_well_known_url: str,
+        keys: Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    ):
+        private_key, _ = keys
+        authenticator = EntraAuthenticator(
+            audience="test_client",
+            client_id="test_client",
+            well_known_uri=oidc_well_known_url,
+            device_flow_client_id="test_cli_client",
+            scopes_map={"User.Read": ["read:monitor"]},
+        )
+        token_claims = {
+            "aud": "test_client",
+            "exp": time.time() + 1500,
+            "iat": time.time() - 1,
+            "iss": "https://example.com/realms/example",
+            "sub": "entra-subject",
+            "preferred_username": "alice@example.org",
+            "scp": "User.Read",
+        }
+        encoded = encrypt_token(token_claims, private_key)
+        decoded = authenticator.decode_token(encoded)
+        assert decoded["user"] == "alice"
+        assert set(decoded["scope"].split(" ")) == {"read:monitor"}
+        assert decoded["entra_sub"] == "entra-subject"
+
+    def test_entra_unmapped_scope_warning(
+        self,
+        caplog,
+        mock_oidc_server: MockRouter,
+        oidc_well_known_url: str,
+        keys: Tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    ):
+        private_key, _ = keys
+        authenticator = EntraAuthenticator(
+            audience="test_client",
+            client_id="test_client",
+            well_known_uri=oidc_well_known_url,
+            device_flow_client_id="test_cli_client",
+            scopes_map={"Known.Scope": ["read:monitor"]},
+        )
+        token_claims = {
+            "aud": "test_client",
+            "exp": time.time() + 1500,
+            "iat": time.time() - 1,
+            "iss": "https://example.com/realms/example",
+            "sub": "entra-subject",
+            "scp": "Unknown.Scope",
+        }
+        encoded = encrypt_token(token_claims, private_key)
+        with caplog.at_level("WARNING"):
+            decoded = authenticator.decode_token(encoded)
+        assert decoded["scope"] == ""
+        assert any("Unmapped Entra scope" in record.message for record in caplog.records)

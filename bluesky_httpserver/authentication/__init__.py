@@ -1,4 +1,5 @@
 from .._authentication import (
+    _extract_scopes,
     base_authentication_router,
     build_auth_code_route,
     build_authorize_route,
@@ -21,6 +22,7 @@ __all__ = [
     "ExternalAuthenticator",
     "InternalAuthenticator",
     "UserSessionState",
+    "_extract_scopes",
     "get_current_principal",
     "get_current_principal_websocket",
     "base_authentication_router",
