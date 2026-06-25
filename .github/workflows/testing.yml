@@ -56,6 +56,8 @@ jobs:
         pip install .
         popd
 
+        pip install --upgrade "git+https://github.com/davidpcls/bluesky-authentication.git@main"
+
         pip install --upgrade pip
         pip install .
         pip install -r requirements-dev.txt
