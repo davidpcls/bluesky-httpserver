@@ -1,7 +1,10 @@
 alembic
+bluesky-authentication
 bluesky-queueserver
 bluesky-queueserver-api
+cachetools
 fastapi
+httpx
 ldap3
 orjson
 pamela

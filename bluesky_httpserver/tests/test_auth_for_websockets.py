@@ -4,7 +4,7 @@ import threading
 import time as ttime
 
 import pytest
-from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd  # noqa F401
+from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd, re_manager_factory  # noqa F401
 from websockets.sync.client import connect
 
 from .conftest import fastapi_server_fs  # noqa: F401
@@ -22,7 +22,7 @@ authentication:
     allow_anonymous_access: True
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -50,12 +50,13 @@ class _ReceiveSystemInfoSocket(threading.Thread):
     save messages to the buffer.
     """
 
-    def __init__(self, *, endpoint, api_key=None, token=None, **kwargs):
+    def __init__(self, *, endpoint, api_key=None, token=None, auth_message=None, **kwargs):
         super().__init__(**kwargs)
         self.received_data_buffer = []
         self._exit = False
         self._api_key = api_key
         self._token = token
+        self._auth_message = auth_message
         self._endpoint = endpoint
 
     def run(self):
@@ -69,6 +70,8 @@ class _ReceiveSystemInfoSocket(threading.Thread):
 
         try:
             with connect(websocket_uri, additional_headers=additional_headers) as websocket:
+                if self._auth_message is not None:
+                    websocket.send(json.dumps(self._auth_message))
                 while not self._exit:
                     try:
                         msg_json = websocket.recv(timeout=0.1, decode=False)
@@ -94,7 +97,10 @@ class _ReceiveSystemInfoSocket(threading.Thread):
 
 
 # fmt: off
-@pytest.mark.parametrize("ws_auth_type", ["apikey", "apikey_invalid", "none"])
+@pytest.mark.parametrize(
+    "ws_auth_type",
+    ["apikey", "apikey_invalid", "token", "token_invalid", "none", "first_message_apikey", "first_message_token"],
+)
 # fmt: on
 def test_websocket_auth_01(
     tmpdir,
@@ -135,10 +141,14 @@ def test_websocket_auth_01(
         ws_params = {"api_key": api_key}
     elif ws_auth_type == "apikey_invalid":
         ws_params = {"api_key": "InvalidApiKey"}
-    # elif ws_auth_type == "token":
-    #     ws_params = {"token": token}
-    # elif ws_auth_type == "token_invalid":
-    #     ws_params = {"token": "InvalidToken"}
+    elif ws_auth_type == "token":
+        ws_params = {"token": token}
+    elif ws_auth_type == "token_invalid":
+        ws_params = {"token": "InvalidToken"}
+    elif ws_auth_type == "first_message_apikey":
+        ws_params = {"auth_message": {"type": "auth", "api_key": api_key}}
+    elif ws_auth_type == "first_message_token":
+        ws_params = {"auth_message": {"type": "auth", "access_token": token}}
     else:
         assert False, f"Unknown authentication type: {ws_auth_type!r}"
 
@@ -164,7 +174,7 @@ def test_websocket_auth_01(
     buffer = rsc.received_data_buffer
     if ws_auth_type in ("none", "apikey_invalid", "token_invalid"):
         assert len(buffer) == 0
-    elif ws_auth_type in ("apikey", "token"):
+    elif ws_auth_type in ("apikey", "token", "first_message_apikey", "first_message_token"):
         assert len(buffer) > 0
         for msg in buffer:
             assert "time" in msg, msg

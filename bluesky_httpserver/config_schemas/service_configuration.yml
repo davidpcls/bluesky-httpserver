@@ -83,8 +83,10 @@ properties:
               description: |
                 Type of Authenticator to use.
 
-                These are typically from the tiled.authenticators module,
+                These are typically from the bluesky_authentication.authenticators module,
                 though user-defined ones may be used as well.
+                Legacy import paths under bluesky_httpserver.authenticators remain
+                supported for backward compatibility.
 
                 This is given as an import path. In an import path, packages/modules
                 are separated by dots, and the object itself it separated by a colon.
@@ -92,36 +94,21 @@ properties:
                 Example:
 
                 ```yaml
-                authenticator: bluesky_httpserver.examples.DummyAuthenticator
+                authenticator: bluesky_authentication.authenticators:DummyAuthenticator
                 ```
-                args:
-                  type: [object, "null"]
-                  description: |
-                    Named arguments to pass to Authenticator. If there are none,
-                    `args` may be omitted or empty.
+              args:
+                type: object
+                description: |
+                  Named arguments to pass to Authenticator. If there are none,
+                  `args` may be omitted or empty.
 
-                    Example:
+                  Example:
 
-                    ```yaml
-                    authenticator: bluesky_httpserver.examples.PAMAuthenticator
-                    args:
-                      service: "custom_service"
-                    ```
-      # qserver_admins:
-      #   type: array
-      #   items:
-      #     type: object
-      #     additionalProperties: false
-      #     required:
-      #       - provider
-      #       - id
-      #     properties:
-      #       provider:
-      #         type: string
-      #       id:
-      #         type: string
-      #   description: |
-      #     Give users with these identities 'admin' Role.
+                  ```yaml
+                  authenticator: bluesky_authentication.authenticators:PAMAuthenticator
+                  args:
+                    service: "custom_service"
+                  ```
       secret_keys:
         type: array
         items:

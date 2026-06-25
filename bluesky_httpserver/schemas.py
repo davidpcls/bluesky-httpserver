@@ -163,6 +163,23 @@ class RefreshToken(pydantic.BaseModel):
     refresh_token: str
 
 
+class DeviceCode(pydantic.BaseModel):
+    """Schema for device code token polling request."""
+
+    device_code: str
+
+
+class DeviceCodeResponse(pydantic.BaseModel):
+    """Schema for device code flow initiation response."""
+
+    authorization_uri: str
+    verification_uri: str
+    device_code: str
+    user_code: str
+    expires_in: int
+    interval: int
+
+
 class AuthenticationMode(str, enum.Enum):
     password = "password"
     external = "external"
@@ -173,6 +190,7 @@ class AboutAuthenticationProvider(pydantic.BaseModel):
     mode: AuthenticationMode
     links: Dict[str, str]
     confirmation_message: Optional[str] = None
+    extra_scopes: Optional[List[str]] = None
 
 
 class AboutAuthenticationLinks(pydantic.BaseModel):
