@@ -9,12 +9,12 @@ import secrets
 import urllib.parse
 from functools import lru_cache, partial
 
+from bluesky_authentication.protocols import ExternalAuthenticator, InternalAuthenticator
 from bluesky_queueserver.manager.comms import validate_zmq_key
 from bluesky_queueserver_api.zmq.aio import REManagerAPI
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from bluesky_authentication.protocols import ExternalAuthenticator, InternalAuthenticator
 
 from .console_output import CollectPublishedConsoleOutput, ConsoleOutputStream, SystemInfoStream
 from .core import PatchedStreamingResponse
