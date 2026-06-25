@@ -83,8 +83,10 @@ properties:
               description: |
                 Type of Authenticator to use.
 
-                These are typically from the bluesky_httpserver.authenticators module,
+                These are typically from the bluesky_authentication.authenticators module,
                 though user-defined ones may be used as well.
+                Legacy import paths under bluesky_httpserver.authenticators remain
+                supported for backward compatibility.
 
                 This is given as an import path. In an import path, packages/modules
                 are separated by dots, and the object itself it separated by a colon.
@@ -92,7 +94,7 @@ properties:
                 Example:
 
                 ```yaml
-                authenticator: bluesky_httpserver.authenticators:DummyAuthenticator
+                authenticator: bluesky_authentication.authenticators:DummyAuthenticator
                 ```
               args:
                 type: object
@@ -103,7 +105,7 @@ properties:
                   Example:
 
                   ```yaml
-                  authenticator: bluesky_httpserver.authenticators:PAMAuthenticator
+                  authenticator: bluesky_authentication.authenticators:PAMAuthenticator
                   args:
                     service: "custom_service"
                   ```

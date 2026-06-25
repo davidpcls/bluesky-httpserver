@@ -22,7 +22,7 @@ authentication:
     allow_anonymous_access: True
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password

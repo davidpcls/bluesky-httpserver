@@ -47,7 +47,7 @@ authentication:
     allow_anonymous_access: True
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -61,7 +61,7 @@ authentication:
     allow_anonymous_access: False
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -177,7 +177,7 @@ authentication:
     allow_anonymous_access: False
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -688,7 +688,7 @@ config_default_resource_access = """
 authentication:
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password

@@ -1,4 +1,5 @@
 alembic
+bluesky-authentication
 bluesky-queueserver
 bluesky-queueserver-api
 cachetools

@@ -14,6 +14,12 @@ and allow high level of customization of functionality, using configuration YML 
 allows greater flexibility and is considered a preferable way of configuring the server in production
 deployments.
 
+.. note::
+
+   Canonical authenticator import paths are in ``bluesky_authentication.authenticators``.
+   Legacy paths in ``bluesky_httpserver.authenticators`` remain supported for backward
+   compatibility.
+
 Environment variable for passing the path to server configuration file(s):
 
 - ``QSERVER_HTTP_SERVER_CONFIG`` - path to a single YML file or a directory with multiple YML files.
@@ -218,7 +224,7 @@ authorization policy and enabled public access::
       allow_anonymous_access: True
       providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
             users_to_passwords:
               bob: ${BOB_PASSWORD}
@@ -269,7 +275,7 @@ respectively. The configuration does not enable public access. ::
     authentication:
       providers:
         - provider: ldap
-          authenticator: bluesky_httpserver.authenticators:LDAPAuthenticator
+          authenticator: bluesky_authentication.authenticators:LDAPAuthenticator
           args:
             server_address: localhost
             server_port: 1389
@@ -325,7 +331,7 @@ Example configuration (Microsoft Entra ID)::
     authentication:
       providers:
         - provider: entra
-          authenticator: bluesky_httpserver.authenticators:OIDCAuthenticator
+          authenticator: bluesky_authentication.authenticators:OIDCAuthenticator
           args:
             audience: 00000000-0000-0000-0000-000000000000
             client_id: 00000000-0000-0000-0000-000000000000
@@ -346,7 +352,7 @@ Example configuration (Google)::
     authentication:
       providers:
         - provider: google
-          authenticator: bluesky_httpserver.authenticators:OIDCAuthenticator
+          authenticator: bluesky_authentication.authenticators:OIDCAuthenticator
           args:
             audience: <google-client-id>
             client_id: <google-client-id>

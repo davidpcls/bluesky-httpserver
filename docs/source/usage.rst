@@ -106,6 +106,12 @@ API calls with invalid token or API key are rejected even if public access is en
 Authentication API for Users
 ============================
 
+.. note::
+
+   Canonical authenticator import paths are in ``bluesky_authentication.authenticators``.
+   Legacy paths in ``bluesky_httpserver.authenticators`` remain supported for backward
+   compatibility.
+
 Logging into the Server (Requesting Token)
 ------------------------------------------
 
@@ -122,7 +128,7 @@ is an example of a config file sets up ``DictionaryAPIAccessControl`` as a provi
   authentication:
     providers:
       - provider: toy
-        authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+        authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
         args:
           users_to_passwords:
             bob: ${BOB_PASSWORD}
