@@ -146,15 +146,25 @@ async def decode_token(token, secret_keys, proxied_authenticator=None):
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    proxied_decoder = (
-        proxied_authenticator.decode_token if proxied_authenticator is not None else None
+    payload = auth_tokens.decode_token_with_secret_keys(token, secret_keys)
+    if payload is not None:
+        return payload
+    if proxied_authenticator is not None:
+        return await proxied_authenticator.decode_token(token)
+    raise credentials_exception
+
+
+def decode_token_sync(token, secret_keys):
+    """Sync-only decode for app-minted tokens (no proxied path needed)."""
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
-    return await auth_tokens.decode_token(
-        token,
-        secret_keys,
-        proxied_decoder=proxied_decoder,
-        credentials_exception=credentials_exception,
-    )
+    payload = auth_tokens.decode_token_with_secret_keys(token, secret_keys)
+    if payload is not None:
+        return payload
+    raise credentials_exception
 
 
 def _extract_scopes(decoded_access_token: dict[str, Any]) -> set[str]:
@@ -432,7 +442,7 @@ async def get_current_principal_websocket(
             return None
 
     try:
-        principal = get_current_principal(
+        principal = await get_current_principal(
             request=websocket,
             security_scopes=security_scopes,
             access_token=access_token,
@@ -1173,9 +1183,9 @@ def revoke_session(
         return JSONResponse(status_code=200, content={"success": True, "msg": ""})
 
 
-async def slide_session(refresh_token, settings, db, api_access_manager):
+def slide_session(refresh_token, settings, db, api_access_manager):
     try:
-        payload = await decode_token(refresh_token, settings.secret_keys)
+        payload = decode_token_sync(refresh_token, settings.secret_keys)
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Session has expired. Please re-authenticate.")
     # Find this session in the database.
