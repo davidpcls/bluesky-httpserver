@@ -140,7 +140,7 @@ def create_refresh_token(session_id, secret_key, expires_delta):
     )
 
 
-async def decode_token(token, secret_keys, proxied_authenticator=None):
+def decode_token(token, secret_keys, proxied_authenticator=None):
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -150,20 +150,7 @@ async def decode_token(token, secret_keys, proxied_authenticator=None):
     if payload is not None:
         return payload
     if proxied_authenticator is not None:
-        return await proxied_authenticator.decode_token(token)
-    raise credentials_exception
-
-
-def decode_token_sync(token, secret_keys):
-    """Sync-only decode for app-minted tokens (no proxied path needed)."""
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    payload = auth_tokens.decode_token_with_secret_keys(token, secret_keys)
-    if payload is not None:
-        return payload
+        return proxied_authenticator.decode_token(token)
     raise credentials_exception
 
 
@@ -301,7 +288,7 @@ async def get_current_principal(
             request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
     elif access_token is not None:
         try:
-            payload = await decode_token(
+            payload = decode_token(
                 access_token,
                 settings.secret_keys,
                 _get_proxied_authenticator(authenticators),
@@ -1185,7 +1172,7 @@ def revoke_session(
 
 def slide_session(refresh_token, settings, db, api_access_manager):
     try:
-        payload = decode_token_sync(refresh_token, settings.secret_keys)
+        payload = decode_token(refresh_token, settings.secret_keys)
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Session has expired. Please re-authenticate.")
     # Find this session in the database.
