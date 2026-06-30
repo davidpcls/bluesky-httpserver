@@ -3,7 +3,7 @@ import copy
 import pprint
 
 import pytest
-from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd  # noqa F401
+from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd, re_manager_factory  # noqa F401
 
 from bluesky_httpserver.authorization._defaults import (
     _DEFAULT_RESOURCE_ACCESS_GROUP,
@@ -47,7 +47,7 @@ authentication:
     allow_anonymous_access: True
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -61,7 +61,7 @@ authentication:
     allow_anonymous_access: False
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -177,7 +177,7 @@ authentication:
     allow_anonymous_access: False
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password
@@ -688,7 +688,7 @@ config_default_resource_access = """
 authentication:
     providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
               users_to_passwords:
                   bob: bob_password

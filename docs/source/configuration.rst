@@ -14,6 +14,12 @@ and allow high level of customization of functionality, using configuration YML 
 allows greater flexibility and is considered a preferable way of configuring the server in production
 deployments.
 
+.. note::
+
+   Canonical authenticator import paths are in ``bluesky_authentication.authenticators``.
+   Legacy paths in ``bluesky_httpserver.authenticators`` remain supported for backward
+   compatibility.
+
 Environment variable for passing the path to server configuration file(s):
 
 - ``QSERVER_HTTP_SERVER_CONFIG`` - path to a single YML file or a directory with multiple YML files.
@@ -218,7 +224,7 @@ authorization policy and enabled public access::
       allow_anonymous_access: True
       providers:
         - provider: toy
-          authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+          authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
           args:
             users_to_passwords:
               bob: ${BOB_PASSWORD}
@@ -269,7 +275,7 @@ respectively. The configuration does not enable public access. ::
     authentication:
       providers:
         - provider: ldap
-          authenticator: bluesky_httpserver.authenticators:LDAPAuthenticator
+          authenticator: bluesky_authentication.authenticators:LDAPAuthenticator
           args:
             server_address: localhost
             server_port: 1389
@@ -293,6 +299,85 @@ See the documentation on ``LDAPAuthenticator`` for more details.
    :toctree: generated
 
     authenticators.LDAPAuthenticator
+
+OIDC Authenticator
+++++++++++++++++++
+
+``OIDCAuthenticator`` integrates the server with third-party OpenID Connect providers
+such as Google, Microsoft Entra ID, ORCID and others. The server does not process user
+passwords directly: authentication is delegated to the provider and the server validates
+the returned OIDC token.
+
+General setup steps:
+
+#. Register an application with the OIDC provider.
+#. Configure redirect URIs for the provider application. For provider name ``entra`` and
+   host ``https://your-server.example`` the redirect URIs are:
+
+   - ``https://your-server.example/api/auth/provider/entra/code``
+   - ``https://your-server.example/api/auth/provider/entra/device_code``
+
+#. Store the client secret in environment variable and reference it in config.
+#. Use provider's ``.well-known/openid-configuration`` URL.
+
+Typical ``well_known_uri`` values:
+
+- Google: ``https://accounts.google.com/.well-known/openid-configuration``
+- Microsoft Entra ID: ``https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration``
+- ORCID: ``https://orcid.org/.well-known/openid-configuration``
+
+Example configuration (Microsoft Entra ID)::
+
+    authentication:
+      providers:
+        - provider: entra
+          authenticator: bluesky_authentication.authenticators:OIDCAuthenticator
+          args:
+            audience: 00000000-0000-0000-0000-000000000000
+            client_id: 00000000-0000-0000-0000-000000000000
+            client_secret: ${BSKY_ENTRA_SECRET}
+            well_known_uri: https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration
+            confirmation_message: "You have logged in successfully."
+    api_access:
+      policy: bluesky_httpserver.authorization:DictionaryAPIAccessControl
+      args:
+        users:
+          <login-name>:
+            roles:
+              - admin
+              - expert
+
+Example configuration (Google)::
+
+    authentication:
+      providers:
+        - provider: google
+          authenticator: bluesky_authentication.authenticators:OIDCAuthenticator
+          args:
+            audience: <google-client-id>
+            client_id: <google-client-id>
+            client_secret: ${BSKY_GOOGLE_SECRET}
+            well_known_uri: https://accounts.google.com/.well-known/openid-configuration
+    api_access:
+      policy: bluesky_httpserver.authorization:DictionaryAPIAccessControl
+      args:
+        users:
+          <login-name>:
+            roles: user
+
+.. note::
+
+    The name used in ``api_access/args/users`` must match the identity string produced by
+    the authenticator for your provider configuration. Verify with ``/api/auth/whoami`` after
+    successful login.
+
+See the documentation on ``OIDCAuthenticator`` for parameter details.
+
+.. autosummary::
+   :nosignatures:
+   :toctree: generated
+
+    authenticators.OIDCAuthenticator
 
 
 Expiration Time for Tokens and Sessions

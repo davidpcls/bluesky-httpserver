@@ -106,6 +106,12 @@ API calls with invalid token or API key are rejected even if public access is en
 Authentication API for Users
 ============================
 
+.. note::
+
+   Canonical authenticator import paths are in ``bluesky_authentication.authenticators``.
+   Legacy paths in ``bluesky_httpserver.authenticators`` remain supported for backward
+   compatibility.
+
 Logging into the Server (Requesting Token)
 ------------------------------------------
 
@@ -122,7 +128,7 @@ is an example of a config file sets up ``DictionaryAPIAccessControl`` as a provi
   authentication:
     providers:
       - provider: toy
-        authenticator: bluesky_httpserver.authenticators:DictionaryAuthenticator
+        authenticator: bluesky_authentication.authenticators:DictionaryAuthenticator
         args:
           users_to_passwords:
             bob: ${BOB_PASSWORD}
@@ -153,6 +159,61 @@ Then users ``bob``, ``alice`` and ``tom`` can log into the server as ::
   http --form POST http://localhost:60610/api/auth/provider/toy/token username=bob password=bob_password
 
 If authentication is successful, then the server returns access and refresh tokens.
+
+Logging in with OIDC Providers (Google, Entra, ORCID, ...)
+-----------------------------------------------------------
+
+For providers configured with ``OIDCAuthenticator``, use provider-specific endpoints
+under ``/api/auth/provider/<provider-name>/...``.
+
+Browser-first flow
+******************
+
+If you are already in a browser context, open:
+
+``<hostname>/api/auth/provider/<provider-name>/authorize``
+
+This redirects to the OIDC provider login page and then back to the server callback.
+
+This can similarly be acheived using ``httpie`` by opening the URL in a browser after getting
+the authorization URI from the server::
+
+  http POST http://localhost:60610/api/auth/provider/entra/authorize
+
+Which will return a token back to the bluesky http server after the user logs in to the provider
+in their browser (or automatically if already logged in). The user then gets a token
+for the bluesky HTTP server to use for subsequent API requests. This flow can be used
+even when using the bluesky queueserver api in a terminal so long as that session can
+spawn a browser for the user to log in to the provider.
+
+CLI/device flow
+***************
+
+For terminal clients (i.e. no browser possible), start with
+``POST /api/auth/provider/<provider-name>/authorize``.
+The response includes:
+
+- ``authorization_uri``: open this URL in a browser
+- ``verification_uri``: polling endpoint for the terminal client
+- ``device_code`` and ``interval``: values for polling
+
+Example using ``httpie`` (provider ``entra``)::
+
+  http POST http://localhost:60610/api/auth/provider/entra/authorize
+
+After opening ``authorization_uri`` in a browser and completing provider login,
+poll ``verification_uri`` using ``device_code`` until tokens are issued::
+
+  http POST http://localhost:60610/api/auth/provider/entra/token \
+    device_code='<device_code_from_authorize_response>'
+
+When authorization is still pending, the endpoint returns ``authorization_pending``.
+When complete, it returns access and refresh tokens.
+
+.. note::
+
+    In common same-device flows the callback can complete automatically without manually
+    typing the user code. Manual code entry remains available as a fallback path.
 
 Generating API Keys
 -------------------
