@@ -32,6 +32,8 @@ else:
 
 from . import schemas
 from bluesky_authentication import tokens as auth_tokens
+from bluesky_authentication.tokens import decode_token
+from bluesky_authentication.utils import extract_scopes, find_proxied_authenticator
 from .authorization._defaults import _DEFAULT_ANONYMOUS_PROVIDER_NAME
 from .core import json_or_msgpack
 from .database import orm
@@ -140,36 +142,9 @@ def create_refresh_token(session_id, secret_key, expires_delta):
     )
 
 
-def decode_token(token, secret_keys, proxied_authenticator=None):
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    payload = auth_tokens.decode_token_with_secret_keys(token, secret_keys)
-    if payload is not None:
-        return payload
-    if proxied_authenticator is not None:
-        return proxied_authenticator.decode_token(token)
-    raise credentials_exception
-
-
 def _extract_scopes(decoded_access_token: dict[str, Any]) -> set[str]:
-    if "scp" in decoded_access_token:
-        scp = decoded_access_token["scp"]
-        return set(scp) if isinstance(scp, list) else set(scp.split(" "))
-    if "scope" in decoded_access_token:
-        return set(decoded_access_token["scope"].split(" "))
-    return set()
-
-
-def _get_proxied_authenticator(authenticators):
-    if not authenticators:
-        return None
-    for authenticator in authenticators.values():
-        if hasattr(authenticator, "oauth2_schema") and hasattr(authenticator, "decode_token"):
-            return authenticator
-    return None
+    # Kept as a local alias for backward compatibility with any internal callers.
+    return extract_scopes(decoded_access_token)
 
 
 async def get_api_key(
@@ -288,10 +263,11 @@ async def get_current_principal(
             request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
     elif access_token is not None:
         try:
+            proxied = find_proxied_authenticator(authenticators)
             payload = decode_token(
                 access_token,
                 settings.secret_keys,
-                _get_proxied_authenticator(authenticators),
+                proxied_decoder=proxied.decode_token if proxied else None,
             )
         except ExpiredSignatureError:
             raise HTTPException(
