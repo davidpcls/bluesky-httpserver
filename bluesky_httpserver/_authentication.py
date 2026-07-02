@@ -3,7 +3,7 @@ import hashlib
 import secrets
 import uuid as uuid_module
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, Security, WebSocket
@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 #     int_from_bytes is deprecated, use int.from_bytes instead
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    from jose import ExpiredSignatureError, JWTError, jwt
+    from jose import ExpiredSignatureError
 
 import pydantic
 from packaging import version
@@ -31,6 +31,9 @@ else:
     from pydantic_settings import BaseSettings
 
 from . import schemas
+from bluesky_authentication import tokens as auth_tokens
+from bluesky_authentication.tokens import decode_token
+from bluesky_authentication.utils import extract_scopes, find_proxied_authenticator
 from .authorization._defaults import _DEFAULT_ANONYMOUS_PROVIDER_NAME
 from .core import json_or_msgpack
 from .database import orm
@@ -54,7 +57,6 @@ from .utils import (
     get_current_username,
 )
 
-ALGORITHM = "HS256"
 UNIT_SECOND = timedelta(seconds=1)
 
 # Device code flow constants
@@ -64,7 +66,7 @@ DEVICE_CODE_POLLING_INTERVAL = 5  # seconds
 
 def utcnow():
     "UTC now with second resolution"
-    return datetime.utcnow().replace(microsecond=0)
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 class Token(BaseModel):
@@ -123,71 +125,26 @@ api_key_cookie = APIKeyCookie(name=API_KEY_COOKIE_NAME, auto_error=False)
 
 
 def create_access_token(data, secret_key, expires_delta):
-    to_encode = data.copy()
-    expire = utcnow() + expires_delta
-    to_encode.update({"exp": expire, "type": "access"})
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
-    return encoded_jwt
+    return auth_tokens.create_access_token(
+        data,
+        secret_key,
+        expires_delta,
+        utcnow=utcnow,
+    )
 
 
 def create_refresh_token(session_id, secret_key, expires_delta):
-    expire = utcnow() + expires_delta
-    to_encode = {
-        "type": "refresh",
-        "sid": session_id,
-        "exp": expire,
-    }
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def _decode_token_with_secret_keys(token, secret_keys):
-    # The first key in settings.secret_keys is used for *encoding*.
-    # All keys are tried for *decoding* until one works or they all
-    # fail. They support key rotation.
-    for secret_key in secret_keys:
-        try:
-            payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
-            return payload
-        except ExpiredSignatureError:
-            # Do not let this be caught below with the other JWTError types.
-            raise
-        except JWTError:
-            # Try the next key in the key rotation.
-            continue
-    return None
-
-
-def decode_token(token, secret_keys, proxied_authenticator=None):
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+    return auth_tokens.create_refresh_token(
+        session_id,
+        secret_key,
+        expires_delta,
+        utcnow=utcnow,
     )
-    payload = _decode_token_with_secret_keys(token, secret_keys)
-    if payload is not None:
-        return payload
-    if proxied_authenticator is not None:
-        return proxied_authenticator.decode_token(token)
-    raise credentials_exception
 
 
 def _extract_scopes(decoded_access_token: dict[str, Any]) -> set[str]:
-    if "scp" in decoded_access_token:
-        scp = decoded_access_token["scp"]
-        return set(scp) if isinstance(scp, list) else set(scp.split(" "))
-    if "scope" in decoded_access_token:
-        return set(decoded_access_token["scope"].split(" "))
-    return set()
-
-
-def _get_proxied_authenticator(authenticators):
-    if not authenticators:
-        return None
-    for authenticator in authenticators.values():
-        if hasattr(authenticator, "oauth2_schema") and hasattr(authenticator, "decode_token"):
-            return authenticator
-    return None
+    # Kept as a local alias for backward compatibility with any internal callers.
+    return extract_scopes(decoded_access_token)
 
 
 async def get_api_key(
@@ -201,7 +158,7 @@ async def get_api_key(
     return None
 
 
-def get_current_principal(
+async def get_current_principal(
     request: Request,
     security_scopes: SecurityScopes,
     access_token: str = Depends(oauth2_scheme),
@@ -306,10 +263,11 @@ def get_current_principal(
             request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
     elif access_token is not None:
         try:
+            proxied = find_proxied_authenticator(authenticators)
             payload = decode_token(
                 access_token,
                 settings.secret_keys,
-                _get_proxied_authenticator(authenticators),
+                proxied_decoder=proxied.decode_token if proxied else None,
             )
         except ExpiredSignatureError:
             raise HTTPException(
@@ -447,7 +405,7 @@ async def get_current_principal_websocket(
             return None
 
     try:
-        principal = get_current_principal(
+        principal = await get_current_principal(
             request=websocket,
             security_scopes=security_scopes,
             access_token=access_token,
