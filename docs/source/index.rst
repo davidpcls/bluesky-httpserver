@@ -11,6 +11,7 @@ Bluesky HTTP Server Documentation
    :maxdepth: 1
 
    installation
+   tiled_auth_test_port_matrix
    release-history
    contributing
 
