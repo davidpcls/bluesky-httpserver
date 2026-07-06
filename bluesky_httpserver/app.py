@@ -181,6 +181,11 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         # Authenticators provide Router(s) for their particular flow.
         # Collect them in the authentication_router.
 
+        # Lazy import: avoid importing authenticators at module import time so
+        # that lightweight test doubles that pass fake authenticators don't
+        # need heavy optional dependencies (e.g. python-jose, httpx).
+        from .authenticators import ProxiedOIDCAuthenticator
+
         for spec in authentication["providers"]:
             provider = spec["provider"]
             authenticator = spec["authenticator"]
@@ -217,6 +222,24 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
                 authentication_router.post(f"/provider/{provider}/token")(
                     build_device_code_token_route(authenticator, provider)
                 )
+                # Warn if the operator forgot to configure a redirect target
+                # for successful browser-based logins. Without it the user
+                # will get a page of raw JSON instead of being sent to the UI.
+                if not getattr(authenticator, "redirect_on_success", None):
+                    logger.warning(
+                        "External authenticator %r has no 'redirect_on_success' "
+                        "configured. Browser-based login will return raw JSON "
+                        "tokens instead of redirecting to a UI landing page. "
+                        "Set 'redirect_on_success' in the authenticator "
+                        "configuration to a UI callback URL to silence this "
+                        "warning.",
+                        provider,
+                    )
+                # Expose the OIDC provider name on app.state so that
+                # get_current_principal / websocket handshakes can resolve
+                # externally-minted JWTs to a Principal in the auth DB.
+                if isinstance(authenticator, ProxiedOIDCAuthenticator):
+                    app.state.provider = provider
             else:
                 raise ValueError(f"unknown authenticator type {type(authenticator)}")
             for custom_router in getattr(authenticator, "include_routers", []):
@@ -416,10 +439,31 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        await SR.RM.close()
-        await SR.console_output_loader.stop()
-        await SR.console_output_stream.stop()
-        await SR.system_info_stream.stop()
+        # Cancel any background tasks started by startup_event, even if
+        # startup itself failed part-way through and never reached
+        # ``app.state.tasks = []``.  Iterating with a getattr default keeps
+        # the shutdown handler idempotent under partial-startup failures.
+        for task in getattr(app.state, "tasks", []):
+            task.cancel()
+        # Best-effort teardown of REManager / console streams; each guarded
+        # so that a failure in one does not skip the others.
+        for closer_name in (
+            "console_output_loader",
+            "console_output_stream",
+            "system_info_stream",
+        ):
+            closer = getattr(SR, closer_name, None)
+            if closer is not None:
+                try:
+                    await closer.stop()
+                except Exception:
+                    logger.exception("Error stopping %s", closer_name)
+        rm = getattr(SR, "RM", None)
+        if rm is not None:
+            try:
+                await rm.close()
+            except Exception:
+                logger.exception("Error closing REManagerAPI connection")
 
     @lru_cache(1)
     def override_get_authenticators():
@@ -506,7 +550,7 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
         if (request.method not in SAFE_METHODS) and set(request.cookies).intersection(SENSITIVE_COOKIES):
             if not csrf_cookie:
-                return Response(status_code=403, content="Expected tiled_csrf_token cookie")
+                return Response(status_code=403, content=f"Expected {CSRF_COOKIE_NAME} cookie")
             # Get the token from the Header or (if not there) the query parameter.
             csrf_token = request.headers.get(CSRF_HEADER_NAME)
             if csrf_token is None:

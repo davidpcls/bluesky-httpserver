@@ -1,4 +1,5 @@
 from .._authentication import (
+    authenticate_websocket_first_message,
     base_authentication_router,
     build_auth_code_route,
     build_authorize_route,
@@ -9,6 +10,7 @@ from .._authentication import (
     build_handle_credentials_route,
     get_current_principal,
     get_current_principal_websocket,
+    get_session_state,
     oauth2_scheme,
 )
 from .authenticator_base import (
@@ -21,8 +23,10 @@ __all__ = [
     "ExternalAuthenticator",
     "InternalAuthenticator",
     "UserSessionState",
+    "authenticate_websocket_first_message",
     "get_current_principal",
     "get_current_principal_websocket",
+    "get_session_state",
     "base_authentication_router",
     "build_auth_code_route",
     "build_authorize_route",

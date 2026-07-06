@@ -15,9 +15,9 @@ from .orm import APIKey, Identity, PendingSession, Principal, Session  # , Role
 
 # This is the alembic revision ID of the database revision
 # required by this version of Tiled.
-REQUIRED_REVISION = "a1b2c3d4e5f6"
+REQUIRED_REVISION = "b2c3d4e5f6a7"
 # This is list of all valid revisions (from current to oldest).
-ALL_REVISIONS = ["a1b2c3d4e5f6", "722ff4e4fcc7", "481830dd6c11"]
+ALL_REVISIONS = ["b2c3d4e5f6a7", "a1b2c3d4e5f6", "722ff4e4fcc7", "481830dd6c11"]
 
 
 # def create_default_roles(engine):
@@ -207,6 +207,33 @@ def create_user(db, identity_provider, id):
     db.add(identity)
     db.commit()
     return principal
+
+
+def get_or_create_principal(db, identity_provider, id):
+    """Return a Principal for (identity_provider, id), creating it if needed.
+
+    Mirrors tiled's ``authn_database.core.get_or_create_principal``.  Unlike
+    :func:`create_session`, this helper only touches the Principal/Identity
+    tables — it never creates a Session row.  It is intended for principals
+    that authenticate with a token minted by an external OIDC provider (i.e.
+    :class:`bluesky_httpserver.authenticators.ProxiedOIDCAuthenticator`
+    subclasses) where the JWT itself is authoritative and no bluesky-httpserver
+    session lifetime is required.
+
+    On successful lookup the matching ``Identity.latest_login`` is updated to
+    now.
+    """
+    identity = (
+        db.query(Identity)
+        .filter(Identity.id == id)
+        .filter(Identity.provider == identity_provider)
+        .first()
+    )
+    if identity is not None:
+        identity.latest_login = datetime.utcnow()
+        db.commit()
+        return identity.principal
+    return create_user(db, identity_provider, id)
 
 
 def lookup_valid_session(db, session_id):

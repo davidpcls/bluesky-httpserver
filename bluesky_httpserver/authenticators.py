@@ -206,13 +206,20 @@ properties:
     def keys(self) -> List[str]:
         return httpx.get(self.jwks_uri).raise_for_status().json().get("keys", [])
 
-    def decode_token(self, token: str) -> dict[str, Any]:
+    def decode_token(
+        self, id_token: str, access_token: Optional[str] = None
+    ) -> dict[str, Any]:
+        # Passing ``access_token`` allows python-jose to validate the ``at_hash``
+        # claim (present in id_tokens when the token endpoint returns an
+        # access_token alongside).  Callers that only have an id_token (or
+        # only an access_token they want to decode as a plain JWT) may omit it.
         return jwt.decode(
-            token,
+            id_token,
             key=self.keys(),
             algorithms=self.id_token_signing_alg_values_supported,
             audience=self._audience,
             issuer=self.issuer,
+            access_token=access_token,
         )
 
     async def authenticate(self, request: Request) -> Optional[UserSessionState]:
@@ -220,7 +227,7 @@ properties:
         if not code:
             logger.warning(
                 "Authentication failed: No authorization code parameter provided."
-            )and 
+            )
             return None
         # A proxy in the middle may make the request into something like
         # 'http://localhost:8000/...' so we fix the first part but keep
@@ -243,8 +250,9 @@ properties:
         # 2. Some providers (like Microsoft Entra) return opaque access_tokens
         #    that cannot be decoded with the JWKS keys when the resource is
         #    a first-party Microsoft API (e.g., Graph API with User.Read scope)
+        access_token = response_body.get("access_token")
         try:
-            verified_body = self.decode_token(id_token)
+            verified_body = self.decode_token(id_token, access_token)
         except JWTError:
             logger.exception(
                 "Authentication error. Unverified token: %r",
@@ -353,16 +361,16 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
             self._client_secret = Secret(client_secret)
         self.redirect_on_success = redirect_on_success
 
-        @property
-        def scopes(self):
-            mapped = set()
-            for tiled_scopes in self.scopes_map.values():
-                mapped.update(tiled_scopes)
-            return list(mapped)
+    @property
+    def scopes(self):
+        mapped = set()
+        for tiled_scopes in self.scopes_map.values():
+            mapped.update(tiled_scopes)
+        return list(mapped)
 
-        @scopes.setter
-        def scopes(self, value):
-            pass  # ignored; scopes are derived from scopes_map
+    @scopes.setter
+    def scopes(self, value):
+        pass  # ignored; scopes are derived from scopes_map
 
     def decode_token(
         self, id_token: str, access_token: Optional[str] = None
