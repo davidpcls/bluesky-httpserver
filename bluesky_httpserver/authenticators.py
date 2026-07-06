@@ -4,9 +4,10 @@ import functools
 import logging
 import re
 import secrets
+import uuid
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import Any, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 import httpx
 from cachetools import TTLCache, cached
@@ -63,11 +64,15 @@ properties:
     description: May be displayed by client after successful login.
 """
 
-    def __init__(self, users_to_passwords: Mapping[str, str], confirmation_message: str = ""):
+    def __init__(
+        self, users_to_passwords: Mapping[str, str], confirmation_message: str = ""
+    ):
         self._users_to_passwords = users_to_passwords
         self.confirmation_message = confirmation_message
 
-    async def authenticate(self, username: str, password: str) -> Optional[UserSessionState]:
+    async def authenticate(
+        self, username: str, password: str
+    ) -> Optional[UserSessionState]:
         true_password = self._users_to_passwords.get(username)
         if not true_password:
             # Username is not valid.
@@ -92,12 +97,16 @@ properties:
 
     def __init__(self, service: str = "login", confirmation_message: str = ""):
         if not modules_available("pamela"):
-            raise ModuleNotFoundError("This PAMAuthenticator requires the module 'pamela' to be installed.")
+            raise ModuleNotFoundError(
+                "This PAMAuthenticator requires the module 'pamela' to be installed."
+            )
         self.service = service
         self.confirmation_message = confirmation_message
         # TODO Try to open a PAM session.
 
-    async def authenticate(self, username: str, password: str) -> Optional[UserSessionState]:
+    async def authenticate(
+        self, username: str, password: str
+    ) -> Optional[UserSessionState]:
         import pamela
 
         try:
@@ -179,17 +188,21 @@ properties:
 
     @functools.cached_property
     def authorization_endpoint(self) -> httpx.URL:
-        return httpx.URL(cast(str, self._config_from_oidc_url.get("authorization_endpoint")))
+        return httpx.URL(
+            cast(str, self._config_from_oidc_url.get("authorization_endpoint"))
+        )
 
     @functools.cached_property
     def device_authorization_endpoint(self) -> str:
-        return cast(str, self._config_from_oidc_url.get("device_authorization_endpoint"))
+        return cast(
+            str, self._config_from_oidc_url.get("device_authorization_endpoint")
+        )
 
     @functools.cached_property
     def end_session_endpoint(self) -> str:
         return cast(str, self._config_from_oidc_url.get("end_session_endpoint"))
 
-    @cached(TTLCache(maxsize=1, ttl=timedelta(days=7).total_seconds()))
+    @cached(TTLCache(maxsize=1, ttl=timedelta(hours=1).total_seconds()))
     def keys(self) -> List[str]:
         return httpx.get(self.jwks_uri).raise_for_status().json().get("keys", [])
 
@@ -205,7 +218,9 @@ properties:
     async def authenticate(self, request: Request) -> Optional[UserSessionState]:
         code = request.query_params.get("code")
         if not code:
-            logger.warning("Authentication failed: No authorization code parameter provided.")
+            logger.warning(
+                "Authentication failed: No authorization code parameter provided."
+            )and 
             return None
         # A proxy in the middle may make the request into something like
         # 'http://localhost:8000/...' so we fix the first part but keep
@@ -310,18 +325,227 @@ properties:
         return self._oidc_bearer
 
 
+class EntraAuthenticator(ProxiedOIDCAuthenticator):
+    def __init__(
+        self,
+        audience: str,
+        client_id: str,
+        well_known_uri: str,
+        device_flow_client_id: str,
+        extra_scopes: Optional[List[str]] = None,
+        confirmation_message: str = "",
+        scopes_map: Optional[Dict[str, list[str]]] = None,
+        client_secret: str = "",
+        redirect_on_success: Optional[str] = None,
+    ):
+        self.scopes_map = scopes_map if scopes_map is not None else {}
+        self.extra_scopes = extra_scopes or []
+        super().__init__(
+            audience,
+            client_id,
+            well_known_uri,
+            device_flow_client_id,
+            scopes=None,  # not used by Entra; enforcement is via scopes_map
+            confirmation_message=confirmation_message,
+        )
+        # Override the empty secret from ProxiedOIDCAuthenticator if provided.
+        if client_secret:
+            self._client_secret = Secret(client_secret)
+        self.redirect_on_success = redirect_on_success
+
+        @property
+        def scopes(self):
+            mapped = set()
+            for tiled_scopes in self.scopes_map.values():
+                mapped.update(tiled_scopes)
+            return list(mapped)
+
+        @scopes.setter
+        def scopes(self, value):
+            pass  # ignored; scopes are derived from scopes_map
+
+    def decode_token(
+        self, id_token: str, access_token: Optional[str] = None
+    ) -> dict[str, Any]:
+        claims = super().decode_token(id_token, access_token)
+
+        # sub generated by Entra is an opaque string; generate a stable UUID
+        # for Tiled based on "iss|sub" for uniqueness across tenants.
+        # Preserve the original Entra sub separately so it can be used as a
+        # fallback display name — it is more human-readable than the UUID5 hex.
+        original_sub = claims.get("sub")
+        issuer = claims.get("iss", "")
+        claims["sub"] = uuid.uuid5(uuid.NAMESPACE_URL, f"{issuer}|{original_sub}").hex
+        claims["entra_sub"] = original_sub
+
+        # Derive a human-readable username from the token claims.
+        # Priority: nameID (explicit app config) → preferred_username (v2 tokens)
+        # → upn (v1 tokens) → email → original Entra sub (opaque but stable and
+        # meaningful, unlike the UUID5 hex stored in claims["sub"]).
+        #
+        # Note: preferred_username / upn are often absent from *access* tokens
+        # unless explicitly added as optional claims in the Entra app registration.
+        # They are typically present in id_tokens.  If none are found, the
+        # original_sub is used and a warning is emitted so operators know to add
+        # the optional claim.
+        claims["entra_username"] = (
+            claims.get("nameID")
+            or claims.get("preferred_username")
+            or claims.get("upn")
+            or claims.get("email")
+        )
+
+        if user := claims.get("entra_username"):
+            user = user.strip()
+            if "\\" in user:
+                user = user.rsplit("\\", 1)[-1]
+            elif "@" in user:
+                user = user.split("@", 1)[0]
+        else:
+            # No human-readable claim was found.  Fall back to the original
+            # Entra sub (opaque but at least stable and not a UUID5 hex).
+            # This produces a workable identity but authz policies that match
+            # on username will need to use the Entra sub value.
+            user = original_sub
+            logger.warning(
+                "EntraAuthenticator: no human-readable username claim found in token "
+                "(checked nameID, preferred_username, upn, email). "
+                "Falling back to Entra sub=%r. "
+                "To fix: add 'preferred_username' as an optional claim in the "
+                "Entra app registration → Token configuration → Optional claims → Access token.",
+                original_sub,
+            )
+        claims["user"] = user
+
+        # Translate Entra scopes to tiled scopes.
+        # The "scp" claim is present in access tokens but may be absent from
+        # id_tokens (e.g. during the authorization code flow).  When absent,
+        # assume all mapped scopes were granted (Entra would not have issued
+        # the tokens if the user lacked the requested scopes).
+        scp_raw = claims.get("scp", "")
+        tiled_scope_set = set()
+        if scp_raw:
+            for scope in scp_raw.split(" "):
+                mapped_scopes = self.scopes_map.get(scope)
+                if mapped_scopes is None:
+                    logger.warning("Unmapped Entra scope in 'scp': %s", scope)
+                    continue
+                tiled_scope_set.update(mapped_scopes)
+        else:
+            # No scp claim — grant all tiled scopes from the map.
+            for mapped_scopes in self.scopes_map.values():
+                tiled_scope_set.update(mapped_scopes)
+        claims["scope"] = " ".join(tiled_scope_set)
+
+        return claims
+
+    async def authenticate(self, request: Request) -> Optional[UserSessionState]:
+        """Complete the Entra OIDC authorization-code flow and return a session.
+
+        After a successful code exchange the Entra ``access_token`` and
+        ``refresh_token`` are stored in ``UserSessionState.state`` under the
+        keys ``entra_access_token`` and ``entra_refresh_token`` respectively.
+        Tiled persists this state in the session DB and embeds it verbatim in
+        every Tiled HMAC access token, making the tokens available to downstream
+        services that rely on Tiled authentication via ``get_session_state()``.
+
+        Security note: the Entra access token is therefore visible inside the
+        Tiled JWT (base64-encoded, not encrypted).  The Tiled access token is
+        short-lived (default 15 min) and only transmitted over HTTPS, which
+        limits the exposure window.
+
+        The ``refresh_token`` enables silent renewal: when the Entra access
+        token expires (~1 h), a downstream service can call the Entra token
+        endpoint with ``grant_type=refresh_token`` to obtain a fresh pair and
+        write it back to the session DB so subsequent Tiled ``slide_session``
+        calls propagate the update automatically.
+        """
+        code = request.query_params.get("code")
+        if not code:
+            logger.warning(
+                "Authentication failed: No authorization code parameter provided."
+            )
+            return None
+        redirect_uri = f"{get_root_url(request)}{request.url.path}"
+        response = await exchange_code(
+            self.token_endpoint,
+            code,
+            self._client_id,
+            self._client_secret.get_secret_value(),
+            redirect_uri,
+            extra_scopes=self.extra_scopes,
+        )
+        response_body = response.json()
+        if response.is_error:
+            logger.error("Authentication error: %r", response_body)
+            return None
+        id_token = response_body["id_token"]
+        access_token = response_body.get("access_token")
+        refresh_token = response_body.get("refresh_token")
+        try:
+            verified_body = self.decode_token(id_token, access_token)
+        except JWTError:
+            logger.exception(
+                "Authentication error. Unverified token: %r",
+                jwt.get_unverified_claims(id_token),
+            )
+            return None
+        # Log the id_token claims available for username resolution so
+        # misconfigurations (missing optional claims) are easy to diagnose.
+        # Logged at DEBUG to avoid leaking PII in production logs by default.
+        logger.debug(
+            "EntraAuthenticator.authenticate: id_token claims present: %s",
+            sorted(verified_body.keys()),
+        )
+        logger.debug(
+            "EntraAuthenticator.authenticate: entra_username=%r user=%r entra_sub=%r",
+            verified_body.get("entra_username"),
+            verified_body.get("user"),
+            verified_body.get("entra_sub"),
+        )
+        # Use the human-readable username (e.g. "dallan") instead of the
+        # opaque UUID-based "sub" that OIDCAuthenticator would use.
+        username = verified_body.get("user") or verified_body["sub"]
+        # Store the Entra access and refresh tokens so that downstream
+        # services that rely on Tiled authentication can perform an OBO exchange
+        # to obtain per-user tokens for other services.  The refresh token
+        # allows silent renewal without requiring the user to re-authenticate.
+        state: dict = {}
+        if access_token:
+            state["entra_access_token"] = access_token
+        if refresh_token:
+            state["entra_refresh_token"] = refresh_token
+        return UserSessionState(username, state)
+
+
 async def exchange_code(
     token_uri: str,
     auth_code: str,
     client_id: str,
     client_secret: str,
     redirect_uri: str,
+    extra_scopes: Optional[List[str]] = None,
 ) -> httpx.Response:
-    """Method that talks to an IdP to exchange a code for an access_token and/or id_token
-    Args:
-        token_url ([type]): [description]
-        auth_code ([type]): [description]
+    """Exchange an authorization code for tokens at the IdP token endpoint.
+
+    Explicitly requests ``openid offline_access`` scopes in the token POST body
+    so that the IdP returns a ``refresh_token`` unconditionally.  This is safe
+    even when ``offline_access`` was already included in the authorization URL
+    scope — the IdP simply ignores duplicates.  Including it here makes the
+    refresh token reliable regardless of how the authorization URL was
+    constructed, which is important for downstream OBO refresh flows.
+
+    ``extra_scopes`` (e.g. ``["api://<client-id>/access_as_user"]``) are
+    appended to the scope string.  Entra only issues an ``access_token`` whose
+    ``aud`` matches the requested resource scope, so any scope that a downstream
+    OBO exchange will use as the ``assertion`` audience **must** be included
+    here — requesting it only on the authorization URL redirect is not
+    sufficient, because Entra does not carry scopes from the redirect into the
+    token POST implicitly.
     """
+    scopes = {"openid", "offline_access"}
+    if extra_scopes:
+        scopes.update(extra_scopes)
     auth_value = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     response = httpx.post(
         url=token_uri,
@@ -331,6 +555,7 @@ async def exchange_code(
             "redirect_uri": redirect_uri,
             "code": auth_code,
             "client_secret": client_secret,
+            "scope": " ".join(sorted(scopes)),
         },
         headers={"Authorization": f"Basic {auth_value}"},
     )
@@ -338,7 +563,6 @@ async def exchange_code(
 
 
 class SAMLAuthenticator(ExternalAuthenticator):
-
     def __init__(
         self,
         saml_settings,  # See EXAMPLE_SAML_SETTINGS below.
@@ -356,7 +580,9 @@ class SAMLAuthenticator(ExternalAuthenticator):
             # The PyPI package name is 'python3-saml'
             # but it imports as 'onelogin'.
             # https://github.com/onelogin/python3-saml
-            raise ModuleNotFoundError("This SAMLAuthenticator requires 'python3-saml' to be installed.")
+            raise ModuleNotFoundError(
+                "This SAMLAuthenticator requires 'python3-saml' to be installed."
+            )
 
         from onelogin.saml2.auth import OneLogin_Saml2_Auth
 
@@ -371,7 +597,9 @@ class SAMLAuthenticator(ExternalAuthenticator):
 
     async def authenticate(self, request: Request) -> Optional[UserSessionState]:
         if not modules_available("onelogin"):
-            raise ModuleNotFoundError("This SAMLAuthenticator requires the module 'oneline' to be installed.")
+            raise ModuleNotFoundError(
+                "This SAMLAuthenticator requires the module 'oneline' to be installed."
+            )
         from onelogin.saml2.auth import OneLogin_Saml2_Auth
 
         req = await prepare_saml_from_fastapi_request(request, True)
@@ -380,7 +608,8 @@ class SAMLAuthenticator(ExternalAuthenticator):
         errors = auth.get_errors()  # This method receives an array with the errors
         if errors:
             raise Exception(
-                "Error when processing SAML Response: %s %s" % (", ".join(errors), auth.get_last_error_reason())
+                "Error when processing SAML Response: %s %s"
+                % (", ".join(errors), auth.get_last_error_reason())
             )
         if auth.is_authenticated():
             # Return a string that the Identity can use as id.
@@ -399,7 +628,7 @@ async def prepare_saml_from_fastapi_request(request: Request) -> Mapping[str, st
         "server_port": request.url.port,
         "script_name": request.url.path,
         "post_data": {},
-        "get_data": {},
+        "get_data": {}
         # Advanced request options
         # "https": "",
         # "request_uri": "",
@@ -420,7 +649,6 @@ async def prepare_saml_from_fastapi_request(request: Request) -> Mapping[str, st
 
 class LDAPAuthenticator(InternalAuthenticator):
     """
-    LDAP authenticator.
     The authenticator code is based on https://github.com/jupyterhub/ldapauthenticator
     The parameter ``use_tls`` was added for convenience of testing.
 
@@ -645,7 +873,9 @@ class LDAPAuthenticator(InternalAuthenticator):
         self.escape_userdn = escape_userdn
         self.search_filter = search_filter
         self.attributes = attributes if attributes else []
-        self.auth_state_attributes = auth_state_attributes if auth_state_attributes else []
+        self.auth_state_attributes = (
+            auth_state_attributes if auth_state_attributes else []
+        )
         self.use_lookup_dn_username = use_lookup_dn_username
 
         if isinstance(server_address, str):
@@ -658,10 +888,14 @@ class LDAPAuthenticator(InternalAuthenticator):
                 f"type(server_address)={type(server_address)}"
             )
         if not server_address_list:
-            raise ValueError("No servers are specified: 'server_address' is an empty list")
+            raise ValueError(
+                "No servers are specified: 'server_address' is an empty list"
+            )
 
         self.server_address_list = server_address_list
-        self.server_port = server_port if server_port is not None else self._server_port_default()
+        self.server_port = (
+            server_port if server_port is not None else self._server_port_default()
+        )
         self.confirmation_message = confirmation_message
 
     def _server_port_default(self):
@@ -715,8 +949,15 @@ class LDAPAuthenticator(InternalAuthenticator):
 
         response = conn.response
         if len(response) == 0 or "attributes" not in response[0].keys():
-            msg = "No entry found for user '{username}' " "when looking up attribute '{attribute}'"
-            logger.warning(msg.format(username=username_supplied_by_user, attribute=self.user_attribute))
+            msg = (
+                "No entry found for user '{username}' "
+                "when looking up attribute '{attribute}'"
+            )
+            logger.warning(
+                msg.format(
+                    username=username_supplied_by_user, attribute=self.user_attribute
+                )
+            )
             return (None, None)
 
         user_dn = response[0]["attributes"][self.lookup_dn_user_dn_attribute]
@@ -774,7 +1015,9 @@ class LDAPAuthenticator(InternalAuthenticator):
             )
             server_pool.add(server)
 
-        auto_bind_no_ssl = ldap3.AUTO_BIND_TLS_BEFORE_BIND if self.use_tls else ldap3.AUTO_BIND_NO_TLS
+        auto_bind_no_ssl = (
+            ldap3.AUTO_BIND_TLS_BEFORE_BIND if self.use_tls else ldap3.AUTO_BIND_NO_TLS
+        )
         auto_bind = ldap3.AUTO_BIND_NO_TLS if self.use_ssl else auto_bind_no_ssl
         conn = ldap3.Connection(
             server_pool,
@@ -799,7 +1042,9 @@ class LDAPAuthenticator(InternalAuthenticator):
                 attrs = conn.entries[0].entry_attributes_as_dict
         return attrs
 
-    async def authenticate(self, username: str, password: str) -> Optional[UserSessionState]:
+    async def authenticate(
+        self, username: str, password: str
+    ) -> Optional[UserSessionState]:
         import ldap3
 
         username_saved = username  # Save the user name passed as a parameter
@@ -825,7 +1070,9 @@ class LDAPAuthenticator(InternalAuthenticator):
 
         # sanity check
         if not self.lookup_dn and not bind_dn_template:
-            logger.warning("Login not allowed, please configure 'lookup_dn' or 'bind_dn_template'.")
+            logger.warning(
+                "Login not allowed, please configure 'lookup_dn' or 'bind_dn_template'."
+            )
             return None
 
         if self.lookup_dn:
@@ -863,7 +1110,9 @@ class LDAPAuthenticator(InternalAuthenticator):
                 if conn.bound:
                     is_bound = True
                 else:
-                    is_bound = await asyncio.get_running_loop().run_in_executor(None, conn.bind)
+                    is_bound = await asyncio.get_running_loop().run_in_executor(
+                        None, conn.bind
+                    )
 
             msg = msg.format(username=username, userdn=userdn, is_bound=is_bound)
             logger.debug(msg)
@@ -876,7 +1125,9 @@ class LDAPAuthenticator(InternalAuthenticator):
             return None
 
         if self.search_filter:
-            search_filter = self.search_filter.format(userattr=self.user_attribute, username=username)
+            search_filter = self.search_filter.format(
+                userattr=self.user_attribute, username=username
+            )
 
             search_func = functools.partial(
                 conn.search,
@@ -890,18 +1141,33 @@ class LDAPAuthenticator(InternalAuthenticator):
             n_users = len(conn.response)
             if n_users == 0:
                 msg = "User with '{userattr}={username}' not found in directory"
-                logger.warning(msg.format(userattr=self.user_attribute, username=username))
+                logger.warning(
+                    msg.format(userattr=self.user_attribute, username=username)
+                )
                 return None
             if n_users > 1:
-                msg = "Duplicate users found! " "{n_users} users found with '{userattr}={username}'"
-                logger.warning(msg.format(userattr=self.user_attribute, username=username, n_users=n_users))
+                msg = (
+                    "Duplicate users found! "
+                    "{n_users} users found with '{userattr}={username}'"
+                )
+                logger.warning(
+                    msg.format(
+                        userattr=self.user_attribute, username=username, n_users=n_users
+                    )
+                )
                 return None
 
         if self.allowed_groups:
             logger.debug("username:%s Using dn %s", username, userdn)
             found = False
             for group in self.allowed_groups:
-                group_filter = "(|" "(member={userdn})" "(uniqueMember={userdn})" "(memberUid={uid})" ")"
+                group_filter = (
+                    "(|"
+                    "(member={userdn})"
+                    "(uniqueMember={userdn})"
+                    "(memberUid={uid})"
+                    ")"
+                )
                 group_filter = group_filter.format(userdn=userdn, uid=username)
                 group_attributes = ["member", "uniqueMember", "memberUid"]
 
@@ -912,7 +1178,9 @@ class LDAPAuthenticator(InternalAuthenticator):
                     search_filter=group_filter,
                     attributes=group_attributes,
                 )
-                found = await asyncio.get_running_loop().run_in_executor(None, search_func)
+                found = await asyncio.get_running_loop().run_in_executor(
+                    None, search_func
+                )
                 if found:
                     break
 
