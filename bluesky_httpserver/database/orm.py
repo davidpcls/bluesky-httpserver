@@ -182,7 +182,7 @@ class Session(Timestamped, Base):
     # Free-form state supplied by the authenticator via UserSessionState.state
     # (e.g. an upstream OIDC access_token/refresh_token for OBO exchange).
     # Persisted so it survives across refresh_session calls; the values are
-    # available to downstream services through Tiled access tokens.
+    # available to downstream services through access tokens.
     state = Column(JSON, nullable=False, default=dict, server_default="{}")
 
     principal = relationship("Principal", back_populates="sessions")

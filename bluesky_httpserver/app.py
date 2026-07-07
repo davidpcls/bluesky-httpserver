@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from .authentication import ExternalAuthenticator, InternalAuthenticator
+from .authenticators import ProxiedOIDCAuthenticator
 from .console_output import CollectPublishedConsoleOutput, ConsoleOutputStream, SystemInfoStream
 from .core import PatchedStreamingResponse
 from .database.core import purge_expired
@@ -180,11 +181,6 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         oauth2_scheme.model.flows.password.tokenUrl = f"/api/auth/provider/{first_provider}/token"
         # Authenticators provide Router(s) for their particular flow.
         # Collect them in the authentication_router.
-
-        # Lazy import: avoid importing authenticators at module import time so
-        # that lightweight test doubles that pass fake authenticators don't
-        # need heavy optional dependencies (e.g. python-jose, httpx).
-        from .authenticators import ProxiedOIDCAuthenticator
 
         for spec in authentication["providers"]:
             provider = spec["provider"]
