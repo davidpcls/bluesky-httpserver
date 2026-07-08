@@ -76,7 +76,7 @@ properties:
         true_password = self._users_to_passwords.get(username)
         if not true_password:
             # Username is not valid.
-            return None
+            return
         if secrets.compare_digest(true_password, password):
             return UserSessionState(username, {})
 
@@ -114,7 +114,7 @@ properties:
             return UserSessionState(username, {})
         except pamela.PAMError:
             # Authentication failed.
-            return None
+            return
 
 
 class OIDCAuthenticator(ExternalAuthenticator):
@@ -209,10 +209,6 @@ properties:
     def decode_token(
         self, id_token: str, access_token: Optional[str] = None
     ) -> dict[str, Any]:
-        # Passing ``access_token`` allows python-jose to validate the ``at_hash``
-        # claim (present in id_tokens when the token endpoint returns an
-        # access_token alongside).  Callers that only have an id_token (or
-        # only an access_token they want to decode as a plain JWT) may omit it.
         return jwt.decode(
             id_token,
             key=self.keys(),
@@ -244,13 +240,9 @@ properties:
         if response.is_error:
             logger.error("Authentication error: %r", response_body)
             return None
+        response_body = response.json()
         id_token = response_body["id_token"]
-        # NOTE: We decode the id_token, not access_token, because:
-        # 1. The id_token is the OIDC identity assertion meant for the client
-        # 2. Some providers (like Microsoft Entra) return opaque access_tokens
-        #    that cannot be decoded with the JWKS keys when the resource is
-        #    a first-party Microsoft API (e.g., Graph API with User.Read scope)
-        access_token = response_body.get("access_token")
+        access_token = response_body["access_token"]
         try:
             verified_body = self.decode_token(id_token, access_token)
         except JWTError:
@@ -259,24 +251,7 @@ properties:
                 jwt.get_unverified_claims(id_token),
             )
             return None
-        # Use preferred_username as the user identifier, extracting just the username
-        # part if it's in email format (user@domain.com -> user)
-        preferred_username = verified_body.get("preferred_username")
-        if preferred_username and "@" in preferred_username:
-            user_id = preferred_username.split("@")[0]
-        elif preferred_username:
-            user_id = preferred_username
-        else:
-            user_id = verified_body["sub"]
-        logger.info(
-            "OIDC authentication successful. user_id=%r (sub=%r, preferred_username=%r, email=%r, name=%r)",
-            user_id,
-            verified_body.get("sub"),
-            verified_body.get("preferred_username"),
-            verified_body.get("email"),
-            verified_body.get("name"),
-        )
-        return UserSessionState(user_id, {})
+        return UserSessionState(verified_body["sub"], {})
 
 
 class ProxiedOIDCAuthenticator(OIDCAuthenticator):
@@ -361,16 +336,16 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
             self._client_secret = Secret(client_secret)
         self.redirect_on_success = redirect_on_success
 
-    @property
-    def scopes(self):
-        mapped = set()
-        for tiled_scopes in self.scopes_map.values():
-            mapped.update(tiled_scopes)
-        return list(mapped)
+        @property
+        def scopes(self):
+            mapped = set()
+            for tiled_scopes in self.scopes_map.values():
+                mapped.update(tiled_scopes)
+            return list(mapped)
 
-    @scopes.setter
-    def scopes(self, value):
-        pass  # ignored; scopes are derived from scopes_map
+        @scopes.setter
+        def scopes(self, value):
+            pass  # ignored; scopes are derived from scopes_map
 
     def decode_token(
         self, id_token: str, access_token: Optional[str] = None
