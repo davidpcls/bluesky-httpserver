@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 
 def utcnow():
     "UTC now with second resolution"
-    return datetime.now(tz=timezone.utc).replace(microsecond=0)
+    return datetime.utcnow().replace(microsecond=0)
 
 
 class Token(BaseModel):

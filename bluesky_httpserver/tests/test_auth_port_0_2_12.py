@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import timedelta, timezone
+from datetime import timedelta
 from typing import Any, Tuple
 from unittest.mock import MagicMock
 
@@ -364,7 +364,7 @@ def test_session_state_column_round_trips(sqlite_session):
 
     session = db_orm.Session(
         principal_id=principal.id,
-        expiration_time=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        expiration_time=datetime.utcnow() + timedelta(days=1),
         state=payload,
     )
     db.add(session)
@@ -382,7 +382,7 @@ def test_session_state_defaults_to_empty_dict(sqlite_session):
     principal = create_user(db, "internal", "alice")
     session = db_orm.Session(
         principal_id=principal.id,
-        expiration_time=datetime.now(tz=timezone.utc) + timedelta(days=1),
+        expiration_time=datetime.utcnow() + timedelta(days=1),
     )
     db.add(session)
     db.commit()

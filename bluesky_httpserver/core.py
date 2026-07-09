@@ -11,7 +11,7 @@ import uuid
 
 # from collections import defaultdict
 # from datetime import datetime, timedelta
-from datetime import datetime, timezone
+from datetime import datetime
 from hashlib import md5
 from typing import Any
 
@@ -197,7 +197,7 @@ _LOCAL_TZINFO = dateutil.tz.gettz()
 #             for key in tree.keys_indexer[offset : offset + limit]  # noqa: E203
 #         )
 #     # This value will not leak out. It just used to seed comparisons.
-#     metadata_stale_at = datetime.now(tz=timezone.utc) + timedelta(days=1_000_000)
+#     metadata_stale_at = datetime.utcnow() + timedelta(days=1_000_000)
 #     must_revalidate = getattr(tree, "must_revalidate", True)
 #     for key, entry in items:
 #         resource = construct_resource(
