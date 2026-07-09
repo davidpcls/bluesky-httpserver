@@ -109,9 +109,7 @@ class APIKeyAuthorizationHeader(APIKeyBase):
         scheme_name: Optional[str] = None,
         description: Optional[str] = None,
     ):
-        self.model: APIKey = APIKey(
-            **{"in": APIKeyIn.header}, name=name, description=description
-        )
+        self.model: APIKey = APIKey(**{"in": APIKeyIn.header}, name=name, description=description)
         self.scheme_name = scheme_name or self.__class__.__name__
 
     async def __call__(self, request: Request) -> Optional[str]:
@@ -342,9 +340,7 @@ def get_current_principal(
                 if api_key_orm is not None:
                     principal = schemas.Principal.from_orm(api_key_orm.principal)
                     ids = get_current_username(
-                        principal=principal,
-                        settings=settings,
-                        api_access_manager=api_access_manager,
+                        principal=principal, settings=settings, api_access_manager=api_access_manager
                     )
                     scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
                     principal_scopes = set.union(*scope_sets) if scope_sets else set()
@@ -382,26 +378,16 @@ def get_current_principal(
                 principal = schemas.Principal(
                     uuid=uuid_module.uuid4(),  # Generate unique UUID each time - it is not expected to be used
                     type="user",
-                    identities=[
-                        schemas.Identity(
-                            id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME
-                        )
-                    ],
+                    identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
                 )
 
             else:
-                raise HTTPException(
-                    status_code=401, detail="Invalid API key", headers=headers_for_401
-                )
+                raise HTTPException(status_code=401, detail="Invalid API key", headers=headers_for_401)
         # If we made it to this point, we have a valid API key.
         # If the API key was given in query param, move to cookie.
         # This is convenient for browser-based access.
-        if ("api_key" in request.query_params) and (
-            request.cookies.get(API_KEY_COOKIE_NAME) != api_key
-        ):
-            request.state.cookies_to_set.append(
-                {"key": API_KEY_COOKIE_NAME, "value": api_key}
-            )
+        if ("api_key" in request.query_params) and (request.cookies.get(API_KEY_COOKIE_NAME) != api_key):
+            request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
     elif access_token is not None:
         proxied_authenticator = _find_proxied_authenticator(authenticators)
         try:
@@ -497,9 +483,7 @@ def get_current_principal(
         principal = schemas.Principal(
             uuid=uuid_module.uuid4(),  # Generate unique UUID each time - it is not expected to be used
             type="user",
-            identities=[
-                schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)
-            ],
+            identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
         )
 
         # Is anonymous public access permitted?
@@ -545,11 +529,7 @@ def get_current_principal(
         api_key_scopes_list.sort()
     else:
         api_key_scopes_list = api_key_scopes
-    principal.roles, principal.scopes, principal.api_key_scopes = (
-        roles_list,
-        scopes_list,
-        api_key_scopes_list,
-    )
+    principal.roles, principal.scopes, principal.api_key_scopes = roles_list, scopes_list, api_key_scopes_list
     return principal
 
 
@@ -867,12 +847,8 @@ def build_device_code_authorize_route(authenticator, provider):
             }
         )
         return {
-            "authorization_uri": str(
-                authorization_uri
-            ),  # URL that user should visit in browser
-            "verification_uri": str(
-                verification_uri
-            ),  # URL that terminal client will poll
+            "authorization_uri": str(authorization_uri),  # URL that user should visit in browser
+            "verification_uri": str(verification_uri),  # URL that terminal client will poll
             "interval": DEVICE_CODE_POLLING_INTERVAL,  # suggested polling interval
             "device_code": pending_session["device_code"],
             "expires_in": int(DEVICE_CODE_MAX_AGE.total_seconds()),  # seconds
@@ -896,9 +872,7 @@ async def _complete_device_code_authorization(
     normalized_user_code = user_code.upper().replace("-", "").strip()
 
     with get_sessionmaker(settings.database_settings)() as db:
-        pending_session = lookup_valid_pending_session_by_user_code(
-            db, normalized_user_code
-        )
+        pending_session = lookup_valid_pending_session_by_user_code(db, normalized_user_code)
         if pending_session is None:
             error_html = f"""
 <!DOCTYPE html>
@@ -1040,9 +1014,7 @@ def build_device_code_form_route(authenticator, provider):
                 api_access_manager=api_access_manager,
             )
 
-        action = (
-            f"{get_base_url(request)}/auth/provider/{provider}/device_code?code={code}"
-        )
+        action = f"{get_base_url(request)}/auth/provider/{provider}/device_code?code={code}"
         html_content = f"""
 <!DOCTYPE html>
 <html>
@@ -1171,29 +1143,21 @@ def build_device_code_token_route(authenticator, provider):
             raise HTTPException(status_code=401, detail="Invalid device code")
 
         with get_sessionmaker(settings.database_settings)() as db:
-            pending_session = lookup_valid_pending_session_by_device_code(
-                db, device_code
-            )
+            pending_session = lookup_valid_pending_session_by_device_code(db, device_code)
             if pending_session is None:
                 raise HTTPException(
                     status_code=404,
                     detail="No such device_code. The pending request may have expired.",
                 )
             if pending_session.session_id is None:
-                raise HTTPException(
-                    status_code=400, detail={"error": "authorization_pending"}
-                )
+                raise HTTPException(status_code=400, detail={"error": "authorization_pending"})
 
             session = pending_session.session
             principal = session.principal
 
             # Get scopes for the user
             # Find an identity to get the username
-            identity = (
-                db.query(orm.Identity)
-                .filter(orm.Identity.principal_id == principal.id)
-                .first()
-            )
+            identity = db.query(orm.Identity).filter(orm.Identity.principal_id == principal.id).first()
             if identity and api_access_manager.is_user_known(identity.id):
                 scopes = api_access_manager.get_user_scopes(identity.id)
             else:
@@ -1229,18 +1193,14 @@ def build_device_code_token_route(authenticator, provider):
                 "access_token": access_token,
                 "expires_in": int(settings.access_token_max_age / UNIT_SECOND),
                 "refresh_token": refresh_token,
-                "refresh_token_expires_in": int(
-                    settings.refresh_token_max_age / UNIT_SECOND
-                ),
+                "refresh_token_expires_in": int(settings.refresh_token_max_age / UNIT_SECOND),
                 "token_type": "bearer",
             }
 
     return device_code_token
 
 
-def generate_apikey(
-    db, principal, apikey_params, request, allowed_scopes, source_api_key_scopes
-):
+def generate_apikey(db, principal, apikey_params, request, allowed_scopes, source_api_key_scopes):
     # Use API key scopes if API key is generated based on existing API key, otherwise used allowed scopes
     if (source_api_key_scopes is not None) and ("inherit" not in source_api_key_scopes):
         scopes_allowed_set = source_api_key_scopes
@@ -1315,9 +1275,7 @@ def principal_list(
         principal_orms = db.query(orm.Principal).all()
 
         principals = [
-            schemas.Principal.from_orm(
-                principal_orm, latest_principal_activity(db, principal_orm)
-            ).dict()
+            schemas.Principal.from_orm(principal_orm, latest_principal_activity(db, principal_orm)).dict()
             for principal_orm in principal_orms
         ]
 
@@ -1337,14 +1295,10 @@ def principal(
     "Get information about one Principal (user or service)."
     request.state.endpoint = "auth"
     with get_sessionmaker(settings.database_settings)() as db:
-        principal_orm = (
-            db.query(orm.Principal).filter(orm.Principal.uuid == uuid).first()
-        )
+        principal_orm = db.query(orm.Principal).filter(orm.Principal.uuid == uuid).first()
         return json_or_msgpack(
             request,
-            schemas.Principal.from_orm(
-                principal_orm, latest_principal_activity(db, principal_orm)
-            ).dict(),
+            schemas.Principal.from_orm(principal_orm, latest_principal_activity(db, principal_orm)).dict(),
         )
 
 
@@ -1365,28 +1319,17 @@ def apikey_for_principal(
     with get_sessionmaker(settings.database_settings)() as db:
         principal = db.query(orm.Principal).filter(orm.Principal.uuid == uuid).first()
         if principal is None:
-            raise HTTPException(
-                404, f"Principal {uuid} does not exist or insufficient permissions."
-            )
+            raise HTTPException(404, f"Principal {uuid} does not exist or insufficient permissions.")
 
         ids = {_.id for _ in principal.identities}
         scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
         principal_scopes = set.union(*scope_sets) if scope_sets else set()
         source_api_key_scopes = None
 
-        return generate_apikey(
-            db,
-            principal,
-            apikey_params,
-            request,
-            principal_scopes,
-            source_api_key_scopes,
-        )
+        return generate_apikey(db, principal, apikey_params, request, principal_scopes, source_api_key_scopes)
 
 
-@base_authentication_router.post(
-    "/session/refresh", response_model=schemas.AccessAndRefreshTokens
-)
+@base_authentication_router.post("/session/refresh", response_model=schemas.AccessAndRefreshTokens)
 def refresh_session(
     request: Request,
     refresh_token: schemas.RefreshToken,
@@ -1396,9 +1339,7 @@ def refresh_session(
     "Obtain a new access token and refresh token."
     request.state.endpoint = "auth"
     with get_sessionmaker(settings.database_settings)() as db:
-        new_tokens = slide_session(
-            refresh_token.refresh_token, settings, db, api_access_manager
-        )
+        new_tokens = slide_session(refresh_token.refresh_token, settings, db, api_access_manager)
         return new_tokens
 
 
@@ -1432,9 +1373,7 @@ def slide_session(refresh_token, settings, db, api_access_manager):
     try:
         payload = decode_token(refresh_token, settings.secret_keys)
     except ExpiredSignatureError:
-        raise HTTPException(
-            status_code=401, detail="Session has expired. Please re-authenticate."
-        )
+        raise HTTPException(status_code=401, detail="Session has expired. Please re-authenticate.")
     # Find this session in the database.
     session = lookup_valid_session(db, payload["sid"])
     now = utcnow()
@@ -1443,9 +1382,7 @@ def slide_session(refresh_token, settings, db, api_access_manager):
     if (session is None) or session.revoked or (session.expiration_time < now):
         # Do not leak (to a potential attacker) whether this has been *revoked*
         # specifically. Give the same error as if it had expired.
-        raise HTTPException(
-            status_code=401, detail="Session has expired. Please re-authenticate."
-        )
+        raise HTTPException(status_code=401, detail="Session has expired. Please re-authenticate.")
     # Update Session info.
     session.time_last_refreshed = now
     # This increments in a way that avoids a race condition.
@@ -1455,9 +1392,7 @@ def slide_session(refresh_token, settings, db, api_access_manager):
     # database hit.
     principal = schemas.Principal.from_orm(session.principal)
 
-    ids = get_current_username(
-        principal=principal, settings=settings, api_access_manager=api_access_manager
-    )
+    ids = get_current_username(principal=principal, settings=settings, api_access_manager=api_access_manager)
     if not ids:
         raise HTTPException(
             status_code=401,
@@ -1517,26 +1452,13 @@ def new_apikey(
     # principal_scopes = set.union(*scope_sets) if scope_sets else set()
 
     allowed_scopes = set(principal.scopes)
-    source_api_key_scopes = (
-        set(principal.api_key_scopes)
-        if (principal.api_key_scopes is not None)
-        else None
-    )
+    source_api_key_scopes = set(principal.api_key_scopes) if (principal.api_key_scopes is not None) else None
 
     with get_sessionmaker(settings.database_settings)() as db:
         # The principal from get_current_principal tells us everything that the
         # access_token carries around, but the database knows more than that.
-        principal_orm = (
-            db.query(orm.Principal).filter(orm.Principal.uuid == principal.uuid).first()
-        )
-        apikey = generate_apikey(
-            db,
-            principal_orm,
-            apikey_params,
-            request,
-            allowed_scopes,
-            source_api_key_scopes,
-        )
+        principal_orm = db.query(orm.Principal).filter(orm.Principal.uuid == principal.uuid).first()
+        apikey = generate_apikey(db, principal_orm, apikey_params, request, allowed_scopes, source_api_key_scopes)
         return apikey
 
 
@@ -1554,9 +1476,7 @@ def current_apikey_info(
     # TODO Permit filtering the fields of the response.
     request.state.endpoint = "auth"
     if api_key is None:
-        raise HTTPException(
-            status_code=401, detail="No API key was provided with this request."
-        )
+        raise HTTPException(status_code=401, detail="No API key was provided with this request.")
     try:
         secret = bytes.fromhex(api_key)
     except Exception:
@@ -1583,11 +1503,7 @@ def revoke_apikey(
     if principal is None:
         return None
     with get_sessionmaker(settings.database_settings)() as db:
-        api_key_orm = (
-            db.query(orm.APIKey)
-            .filter(orm.APIKey.first_eight == first_eight[:8])
-            .first()
-        )
+        api_key_orm = db.query(orm.APIKey).filter(orm.APIKey.first_eight == first_eight[:8]).first()
         if (api_key_orm is None) or (api_key_orm.principal.uuid != principal.uuid):
             raise HTTPException(
                 404,
@@ -1615,14 +1531,10 @@ def whoami(
     # The principal from get_current_principal tells us everything that the
     # access_token carries around, but the database knows more than that.
     with get_sessionmaker(settings.database_settings)() as db:
-        principal_orm = (
-            db.query(orm.Principal).filter(orm.Principal.uuid == principal.uuid).first()
-        )
+        principal_orm = db.query(orm.Principal).filter(orm.Principal.uuid == principal.uuid).first()
         return json_or_msgpack(
             request,
-            schemas.Principal.from_orm(
-                principal_orm, latest_principal_activity(db, principal_orm)
-            ).dict(),
+            schemas.Principal.from_orm(principal_orm, latest_principal_activity(db, principal_orm)).dict(),
         )
 
 
@@ -1635,9 +1547,7 @@ def scopes(
     principal=Security(get_current_principal, scopes=[]),
 ):
     roles, scopes = principal.roles, principal.scopes
-    return json_or_msgpack(
-        request, schemas.AllowedScopes(roles=roles, scopes=scopes).dict()
-    )
+    return json_or_msgpack(request, schemas.AllowedScopes(roles=roles, scopes=scopes).dict())
 
 
 @base_authentication_router.post("/logout")

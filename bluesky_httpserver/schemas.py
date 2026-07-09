@@ -271,9 +271,6 @@ class Session(pydantic.BaseModel, **orm):
     uuid: uuid.UUID
     expiration_time: datetime
     revoked: bool
-    # Free-form JSON dict populated by an authenticator's UserSessionState.state.
-    # Downstream services that share Tiled authentication may use this to carry
-    # e.g. upstream OIDC access/refresh tokens across session refreshes.
     state: Dict = {}
 
 
@@ -293,11 +290,6 @@ class Principal(pydantic.BaseModel, **orm):
     roles: Optional[List[str]] = []
     scopes: Optional[List[str]] = []
     api_key_scopes: Optional[Union[List[str], None]] = None
-    # Raw access token for principals authenticated by an external OIDC provider.
-    # This is populated only when the current request was authenticated with an
-    # externally-minted (proxied OIDC) access token, and is intended for
-    # downstream services that need to perform an on-behalf-of exchange.
-    # It is NEVER persisted to the auth DB.
     access_token: Optional[str] = None
 
     @classmethod
