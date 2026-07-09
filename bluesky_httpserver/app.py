@@ -16,7 +16,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from .authentication import Mode
-from .console_output import CollectPublishedConsoleOutput, ConsoleOutputStream, SystemInfoStream
+from .console_output import (
+    CollectPublishedConsoleOutput,
+    ConsoleOutputStream,
+    SystemInfoStream,
+)
 from .core import PatchedStreamingResponse
 from .database.core import purge_expired
 from .resources import SERVER_RESOURCES as SR
@@ -69,9 +73,9 @@ def custom_openapi(app):
     # print(f"openapi_schema = {pprint.pformat(openapi_schema['components'])}")  ##
     # Insert refreshUrl.
     if "securitySchemes" in openapi_schema["components"]:  # False when calling /docs
-        openapi_schema["components"]["securitySchemes"]["OAuth2PasswordBearer"]["flows"]["password"][
-            "refreshUrl"
-        ] = "token/refresh"
+        openapi_schema["components"]["securitySchemes"]["OAuth2PasswordBearer"][
+            "flows"
+        ]["password"]["refreshUrl"] = "token/refresh"
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -108,10 +112,14 @@ def add_router(app, *, module_and_router_name):
         router = getattr(mod, router_name)
         app.include_router(router)
     except Exception as ex:
-        raise ImportError(f"Failed to import router {module_and_router_name!r}: {ex}") from ex
+        raise ImportError(
+            f"Failed to import router {module_and_router_name!r}: {ex}"
+        ) from ex
 
 
-def build_app(authentication=None, api_access=None, resource_access=None, server_settings=None):
+def build_app(
+    authentication=None, api_access=None, resource_access=None, server_settings=None
+):
     """
     Build application
 
@@ -124,7 +132,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     """
     authentication = authentication or {}
     authentication_providers = authentication.get("providers", [])
-    authenticators = {spec["provider"]: spec["authenticator"] for spec in authentication_providers}
+    authenticators = {
+        spec["provider"]: spec["authenticator"] for spec in authentication_providers
+    }
     api_access = api_access or {}
     api_access_manager = api_access.get("manager_object", None)
     resource_access = resource_access or {}
@@ -146,7 +156,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         logger.info("Custom routers are specified in the config file: %s", router_names)
     elif router_names_str:
         router_names = re.split(":|,", router_names_str)
-        logger.info("Custom routers are specified in the environment variable: %s", router_names)
+        logger.info(
+            "Custom routers are specified in the environment variable: %s", router_names
+        )
 
     if router_names:
         routers_already_included = set()
@@ -172,7 +184,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     if authentication.get("providers", []):
         # For the OpenAPI schema, inject a OAuth2PasswordBearer URL.
         first_provider = authentication["providers"][0]["provider"]
-        oauth2_scheme.model.flows.password.tokenUrl = f"/api/auth/provider/{first_provider}/token"
+        oauth2_scheme.model.flows.password.tokenUrl = (
+            f"/api/auth/provider/{first_provider}/token"
+        )
         # Authenticators provide Router(s) for their particular flow.
         # Collect them in the authentication_router.
 
@@ -194,7 +208,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             else:
                 raise ValueError(f"unknown authentication mode {mode}")
             for custom_router in getattr(authenticator, "include_routers", []):
-                authentication_router.include_router(custom_router, prefix=f"/provider/{provider}")
+                authentication_router.include_router(
+                    custom_router, prefix=f"/provider/{provider}"
+                )
 
     # And add this authentication_router itself to the app.
     app.include_router(authentication_router, prefix="/api/auth")
@@ -271,11 +287,17 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             async def purge_expired_sessions_and_api_keys():
                 logger.info("Purging expired Sessions and API keys from the database.")
                 while True:
-                    await asyncio.get_running_loop().run_in_executor(None, purge_expired(engine, orm.Session))
-                    await asyncio.get_running_loop().run_in_executor(None, purge_expired(engine, orm.APIKey))
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, purge_expired(engine, orm.Session)
+                    )
+                    await asyncio.get_running_loop().run_in_executor(
+                        None, purge_expired(engine, orm.APIKey)
+                    )
                     await asyncio.sleep(600)
 
-            app.state.tasks.append(asyncio.create_task(purge_expired_sessions_and_api_keys()))
+            app.state.tasks.append(
+                asyncio.create_task(purge_expired_sessions_and_api_keys())
+            )
 
         # TODO: implement nicer exit with error reporting in case of failure
         zmq_control_addr = os.getenv("QSERVER_ZMQ_CONTROL_ADDRESS", None)
@@ -310,14 +332,22 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         zmq_encoding = os.getenv("QSERVER_ZMQ_ENCODING", None)
 
         # Check if ZMQ setting were specified in config file. Overrid the parameters from EVs.
-        zmq_control_addr = server_settings["qserver_zmq_configuration"].get("control_address", zmq_control_addr)
-        zmq_info_addr = server_settings["qserver_zmq_configuration"].get("info_address", zmq_info_addr)
-        zmq_encoding = server_settings["qserver_zmq_configuration"].get("encoding", zmq_encoding)
+        zmq_control_addr = server_settings["qserver_zmq_configuration"].get(
+            "control_address", zmq_control_addr
+        )
+        zmq_info_addr = server_settings["qserver_zmq_configuration"].get(
+            "info_address", zmq_info_addr
+        )
+        zmq_encoding = server_settings["qserver_zmq_configuration"].get(
+            "encoding", zmq_encoding
+        )
 
         # Read public key from the environment variable or config file.
         zmq_public_key = os.environ.get("QSERVER_ZMQ_PUBLIC_KEY", None)
         zmq_public_key = zmq_public_key if zmq_public_key else None  # Case of ""
-        zmq_public_key = server_settings["qserver_zmq_configuration"].get("public_key", zmq_public_key)
+        zmq_public_key = server_settings["qserver_zmq_configuration"].get(
+            "public_key", zmq_public_key
+        )
         if zmq_public_key is not None:
             try:
                 validate_zmq_key(zmq_public_key)
@@ -354,7 +384,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
 
         # Import module with custom code
         module_names_str = os.getenv("QSERVER_CUSTOM_MODULES", None)
-        if (module_names_str is None) and (os.getenv("QSERVER_CUSTOM_MODULE", None) is not None):
+        if (module_names_str is None) and (
+            os.getenv("QSERVER_CUSTOM_MODULE", None) is not None
+        ):
             logger.warning(
                 "Environment variable QSERVER_CUSTOM_MODULE is deprecated and will be removed. "
                 "Use the environment variable QSERVER_CUSTOM_MODULES, which accepts a string with "
@@ -365,10 +397,15 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         module_names = []
         if "custom_modules" in server_settings["server_configuration"]:
             module_names = server_settings["server_configuration"]["custom_modules"]
-            logger.info("Custom modules from config file: %s", pprint.pformat(module_names))
+            logger.info(
+                "Custom modules from config file: %s", pprint.pformat(module_names)
+            )
         elif module_names_str:
             module_names = re.split(":|,", module_names_str)
-            logger.info("Custom modules from environment variable: %s", pprint.pformat(module_names))
+            logger.info(
+                "Custom modules from environment variable: %s",
+                pprint.pformat(module_names),
+            )
 
         if module_names:
             # Import all listed custom modules
@@ -376,10 +413,14 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             for name in module_names:
                 try:
                     logger.info("Importing custom module '%s' ...", name)
-                    custom_code_modules.append(importlib.import_module(name.replace("-", "_")))
+                    custom_code_modules.append(
+                        importlib.import_module(name.replace("-", "_"))
+                    )
                     logger.info("Module '%s' was imported successfully.", name)
                 except Exception as ex:
-                    logger.error("Failed to import custom instrument module '%s': %s", name, ex)
+                    logger.error(
+                        "Failed to import custom instrument module '%s': %s", name, ex
+                    )
             SR.set_custom_code_modules(custom_code_modules)
         else:
             SR.set_custom_code_modules([])
@@ -390,10 +431,31 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
 
     @app.on_event("shutdown")
     async def shutdown_event():
-        await SR.RM.close()
-        await SR.console_output_loader.stop()
-        await SR.console_output_stream.stop()
-        await SR.system_info_stream.stop()
+        # Cancel any background tasks started by startup_event, even if
+        # startup itself failed part-way through and never reached
+        # ``app.state.tasks = []``.  Iterating with a getattr default keeps
+        # the shutdown handler idempotent under partial-startup failures.
+        for task in getattr(app.state, "tasks", []):
+            task.cancel()
+        # Best-effort teardown of REManager / console streams; each guarded
+        # so that a failure in one does not skip the others.
+        for closer_name in (
+            "console_output_loader",
+            "console_output_stream",
+            "system_info_stream",
+        ):
+            closer = getattr(SR, closer_name, None)
+            if closer is not None:
+                try:
+                    await closer.stop()
+                except Exception:
+                    logger.exception("Error stopping %s", closer_name)
+        rm = getattr(SR, "RM", None)
+        if rm is not None:
+            try:
+                await rm.close()
+            except Exception:
+                logger.exception("Error closing REManagerAPI connection")
 
     @lru_cache(1)
     def override_get_authenticators():
@@ -410,7 +472,11 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     @lru_cache(1)
     def override_get_settings():
         settings = get_settings()
-        setattr(settings, "authentication_provider_names", [_["provider"] for _ in authentication_providers])
+        setattr(
+            settings,
+            "authentication_provider_names",
+            [_["provider"] for _ in authentication_providers],
+        )
         for item in [
             "allow_anonymous_access",
             "secret_keys",
@@ -433,13 +499,19 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             settings.database_pool_size = database["pool_size"]
         if database.get("pool_pre_ping"):
             settings.database_pool_pre_ping = database["pool_pre_ping"]
-        object_cache_available_bytes = server_settings.get("object_cache", {}).get("available_bytes")
+        object_cache_available_bytes = server_settings.get("object_cache", {}).get(
+            "available_bytes"
+        )
         if object_cache_available_bytes is not None:
-            setattr(settings, "object_cache_available_bytes", object_cache_available_bytes)
+            setattr(
+                settings, "object_cache_available_bytes", object_cache_available_bytes
+            )
         if authentication.get("providers"):
             # If we support authentication providers, we need a database, so if one is
             # not set, use a SQLite database in the current working directory.
-            settings.database_uri = settings.database_uri or "sqlite:///./bluesky_httpserver.sqlite"
+            settings.database_uri = (
+                settings.database_uri or "sqlite:///./bluesky_httpserver.sqlite"
+            )
         return settings
 
     @app.middleware("http")
@@ -466,7 +538,11 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         response.headers["Server-Timing"] = ", ".join(
             f"{key};"
             + ";".join(
-                (f"{metric}={value * 1000:.1f}" if metric == "dur" else f"{metric}={value:.1f}")
+                (
+                    f"{metric}={value * 1000:.1f}"
+                    if metric == "dur"
+                    else f"{metric}={value:.1f}"
+                )
                 for metric, value in metrics_.items()
             )
             for key, metrics_ in metrics.items()
@@ -478,9 +554,13 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     async def double_submit_cookie_csrf_protection(request: Request, call_next):
         # https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie
         csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
-        if (request.method not in SAFE_METHODS) and set(request.cookies).intersection(SENSITIVE_COOKIES):
+        if (request.method not in SAFE_METHODS) and set(request.cookies).intersection(
+            SENSITIVE_COOKIES
+        ):
             if not csrf_cookie:
-                return Response(status_code=403, content="Expected tiled_csrf_token cookie")
+                return Response(
+                    status_code=403, content="Expected tiled_csrf_token cookie"
+                )
             # Get the token from the Header or (if not there) the query parameter.
             csrf_token = request.headers.get(CSRF_HEADER_NAME)
             if csrf_token is None:
@@ -493,7 +573,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
                 )
             # Securely compare the token with the cookie.
             if not secrets.compare_digest(csrf_token, csrf_cookie):
-                return Response(status_code=403, content="Double-submit CSRF tokens do not match")
+                return Response(
+                    status_code=403, content="Double-submit CSRF tokens do not match"
+                )
 
         response = await call_next(request)
         response.__class__ = PatchedStreamingResponse  # tolerate memoryview
@@ -522,7 +604,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
     app.openapi = partial(custom_openapi, app)
     app.dependency_overrides[get_authenticators] = override_get_authenticators
     app.dependency_overrides[get_api_access_manager] = override_get_api_access_manager
-    app.dependency_overrides[get_resource_access_manager] = override_get_resource_access_manager
+    app.dependency_overrides[get_resource_access_manager] = (
+        override_get_resource_access_manager
+    )
     app.dependency_overrides[get_settings] = override_get_settings
 
     def add_custom_middleware():
