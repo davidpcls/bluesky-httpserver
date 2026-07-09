@@ -1192,7 +1192,14 @@ async def _authenticate_websocket(websocket, scopes):
     await websocket.accept()
     try:
         message = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-    except (asyncio.TimeoutError, WebSocketDisconnect, Exception):
+    except asyncio.TimeoutError:
+        await websocket.close(code=_WS_CLOSE_AUTH_REQUIRED, reason="Auth required")
+        return None, True
+    except WebSocketDisconnect:
+        # Client already gone — no close frame needed.
+        return None, True
+    except Exception:
+        logger.exception("Unexpected error receiving WebSocket auth frame")
         await websocket.close(code=_WS_CLOSE_AUTH_REQUIRED, reason="Auth required")
         return None, True
 

@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 
 def utcnow():
     "UTC now with second resolution"
-    return datetime.utcnow().replace(microsecond=0)
+    return datetime.now(tz=timezone.utc).replace(microsecond=0)
 
 
 class Token(BaseModel):
@@ -436,7 +436,8 @@ def get_current_principal(
                 for _ in payload["ids"]
                 if _["idp"] in settings.authentication_provider_names
             ]
-            scopes = set.union(*[api_access_manager.get_user_scopes(_) for _ in ids])
+            scopes_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
+            scopes = set.union(*scopes_sets) if scopes_sets else set()
 
             roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
             roles = set.union(*roles_sets) if roles_sets else set()
@@ -817,10 +818,7 @@ def build_authorize_route(authenticator, provider):
         # Always request ``openid`` and ``offline_access`` so the IdP returns a
         # refresh_token in the code exchange.  Authenticators (e.g. Entra) may
         # advertise extra scopes via an ``extra_scopes`` attribute to obtain
-        # per-resource access tokens.  ``prompt=login`` forces the IdP to
-        # prompt the user rather than silently reissue a session — this
-        # prevents surprising SSO behavior when a user explicitly navigates
-        # to the login flow.
+        # per-resource access tokens.  
         scopes = {"openid", "profile", "email", "offline_access"}
         scopes.update(getattr(authenticator, "extra_scopes", []) or [])
 

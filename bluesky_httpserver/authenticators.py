@@ -240,7 +240,6 @@ properties:
         if response.is_error:
             logger.error("Authentication error: %r", response_body)
             return None
-        response_body = response.json()
         id_token = response_body["id_token"]
         access_token = response_body["access_token"]
         try:
@@ -336,16 +335,16 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
             self._client_secret = Secret(client_secret)
         self.redirect_on_success = redirect_on_success
 
-        @property
-        def scopes(self):
-            mapped = set()
-            for tiled_scopes in self.scopes_map.values():
-                mapped.update(tiled_scopes)
-            return list(mapped)
+    @property
+    def scopes(self):
+        mapped = set()
+        for tiled_scopes in self.scopes_map.values():
+            mapped.update(tiled_scopes)
+        return list(mapped)
 
-        @scopes.setter
-        def scopes(self, value):
-            pass  # ignored; scopes are derived from scopes_map
+    @scopes.setter
+    def scopes(self, value):
+        pass  # ignored; scopes are derived from scopes_map
 
     def decode_token(
         self, id_token: str, access_token: Optional[str] = None

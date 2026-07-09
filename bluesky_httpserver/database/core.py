@@ -1,6 +1,6 @@
 import hashlib
 import uuid as uuid_module
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from alembic import command
@@ -184,7 +184,7 @@ def purge_expired(engine, cls):
     """
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     deleted = False
     for obj in db.query(cls).filter(cls.expiration_time.is_not(None)).filter(cls.expiration_time < now):
         deleted = True
@@ -230,7 +230,7 @@ def get_or_create_principal(db, identity_provider, id):
         .first()
     )
     if identity is not None:
-        identity.latest_login = datetime.utcnow()
+        identity.latest_login = datetime.now(tz=timezone.utc)
         db.commit()
         return identity.principal
     return create_user(db, identity_provider, id)
@@ -243,7 +243,9 @@ def lookup_valid_session(db, session_id):
         return None
 
     session = db.query(Session).filter(Session.uuid == uuid_module.UUID(hex=session_id)).first()
-    if session.expiration_time is not None and session.expiration_time < datetime.utcnow():
+    if session is None:
+        return None
+    if session.expiration_time is not None and session.expiration_time < datetime.now(tz=timezone.utc):
         db.delete(session)
         db.commit()
         return None
@@ -268,7 +270,7 @@ def lookup_valid_api_key(db, secret):
     Look up an API key. Ensure that it is valid.
     """
 
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     hashed_secret = hashlib.sha256(secret).digest()
     api_key = (
         db.query(APIKey)
@@ -336,7 +338,7 @@ def lookup_valid_pending_session_by_device_code(db, device_code: bytes) -> Optio
     )
     if pending_session is None:
         return None
-    if pending_session.expiration_time is not None and pending_session.expiration_time < datetime.utcnow():
+    if pending_session.expiration_time is not None and pending_session.expiration_time < datetime.now(tz=timezone.utc):
         db.delete(pending_session)
         db.commit()
         return None
@@ -352,7 +354,7 @@ def lookup_valid_pending_session_by_user_code(db, user_code: str) -> Optional[Pe
     pending_session = db.query(PendingSession).filter(PendingSession.user_code == user_code).first()
     if pending_session is None:
         return None
-    if pending_session.expiration_time is not None and pending_session.expiration_time < datetime.utcnow():
+    if pending_session.expiration_time is not None and pending_session.expiration_time < datetime.now(tz=timezone.utc):
         db.delete(pending_session)
         db.commit()
         return None
