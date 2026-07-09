@@ -298,8 +298,10 @@ def build_app(
             from .database.core import (  # make_admin_by_identity,
                 REQUIRED_REVISION,
                 UninitializedDatabase,
+                DatabaseUpgradeNeeded,
                 check_database,
                 initialize_database,
+                upgrade,
             )
 
             connect_args = {}
@@ -317,6 +319,12 @@ def build_app(
                 )
                 initialize_database(engine)
                 logger.info("Database initialized.")
+            except DatabaseUpgradeNeeded:
+                logger.info(
+                    f"Database at {redacted_url} is out of date. Upgrading to {REQUIRED_REVISION}..."
+                )
+                upgrade(engine, REQUIRED_REVISION)
+                logger.info("Database upgraded.")
             else:
                 logger.info(f"Connected to existing database at {redacted_url}.")
             # SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
