@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import timedelta
-from typing import Any, Tuple
+from typing import Tuple
 from unittest.mock import MagicMock
 
 import httpx
@@ -71,9 +71,7 @@ def json_web_keyset(keys):
 
 @pytest.fixture
 def mock_oidc_server(respx_mock: MockRouter, oidc_well_known_url, well_known_response, json_web_keyset):
-    respx_mock.get(oidc_well_known_url).mock(
-        return_value=httpx.Response(200, json=well_known_response)
-    )
+    respx_mock.get(oidc_well_known_url).mock(return_value=httpx.Response(200, json=well_known_response))
     respx_mock.get(well_known_response["jwks_uri"]).mock(
         return_value=httpx.Response(200, json={"keys": json_web_keyset})
     )
@@ -262,9 +260,10 @@ class TestExtractScopes:
         }
 
     def test_union_of_both_claims(self):
-        assert _auth._extract_scopes(
-            {"scp": ["read:queue"], "scope": "read:status"}
-        ) == {"read:queue", "read:status"}
+        assert _auth._extract_scopes({"scp": ["read:queue"], "scope": "read:status"}) == {
+            "read:queue",
+            "read:status",
+        }
 
     def test_empty_or_missing(self):
         assert _auth._extract_scopes({}) == set()
@@ -515,7 +514,6 @@ def test_authenticate_websocket_first_message_accepts_valid_api_key(sqlite_sessi
     # Route the sessionmaker used by get_current_principal through our
     # in-memory sqlite engine.
     engine = db.get_bind()
-    from bluesky_httpserver.settings import get_sessionmaker
 
     def _fake_sessionmaker(_db_settings):
         return sessionmaker(bind=engine, autocommit=False, autoflush=False)
@@ -542,9 +540,7 @@ def test_authenticate_websocket_first_message_accepts_valid_api_key(sqlite_sessi
     saved = auth_mod.get_sessionmaker
     auth_mod.get_sessionmaker = _fake_sessionmaker
     try:
-        result = _auth.authenticate_websocket_first_message(
-            ws, {"type": "auth", "api_key": secret.hex()}
-        )
+        result = _auth.authenticate_websocket_first_message(ws, {"type": "auth", "api_key": secret.hex()})
     finally:
         auth_mod.get_sessionmaker = saved
 
@@ -581,11 +577,6 @@ def test_authenticate_websocket_first_message_rejects_bad_api_key(sqlite_session
     auth_mod.get_sessionmaker = _fake_sessionmaker
     try:
         # 'not-hex' fails bytes.fromhex → HTTPException 401 inside get_current_principal.
-        assert (
-            _auth.authenticate_websocket_first_message(
-                ws, {"type": "auth", "api_key": "not-hex"}
-            )
-            is None
-        )
+        assert _auth.authenticate_websocket_first_message(ws, {"type": "auth", "api_key": "not-hex"}) is None
     finally:
         auth_mod.get_sessionmaker = saved

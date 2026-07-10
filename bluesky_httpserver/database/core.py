@@ -223,12 +223,7 @@ def get_or_create_principal(db, identity_provider, id):
     On successful lookup the matching ``Identity.latest_login`` is updated to
     now.
     """
-    identity = (
-        db.query(Identity)
-        .filter(Identity.id == id)
-        .filter(Identity.provider == identity_provider)
-        .first()
-    )
+    identity = db.query(Identity).filter(Identity.id == id).filter(Identity.provider == identity_provider).first()
     if identity is not None:
         identity.latest_login = datetime.utcnow()
         db.commit()

@@ -359,9 +359,7 @@ def get_current_principal(
     elif access_token is not None:
         proxied_authenticator = _find_proxied_authenticator(authenticators)
         try:
-            payload = decode_token(
-                access_token, settings.secret_keys, proxied_authenticator
-            )
+            payload = decode_token(access_token, settings.secret_keys, proxied_authenticator)
         except ExpiredSignatureError:
             raise HTTPException(
                 status_code=401,
@@ -377,19 +375,14 @@ def get_current_principal(
                 uuid=uuid_module.UUID(hex=payload["sub"]),
                 type=payload["sub_typ"],
                 identities=[
-                    schemas.Identity(id=identity["id"], provider=identity["idp"])
-                    for identity in payload["ids"]
+                    schemas.Identity(id=identity["id"], provider=identity["idp"]) for identity in payload["ids"]
                 ],
             )
 
             # scopes = payload["scp"]
 
             # Combine scopes for all identities (it is expected to be only one identity).
-            ids = [
-                _["id"]
-                for _ in payload["ids"]
-                if _["idp"] in settings.authentication_provider_names
-            ]
+            ids = [_["id"] for _ in payload["ids"] if _["idp"] in settings.authentication_provider_names]
             scopes_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
             scopes = set.union(*scopes_sets) if scopes_sets else set()
 
@@ -630,10 +623,7 @@ def create_session(settings, identity_provider, id, scopes, state=None):
             "sub": principal.uuid.hex,
             "sub_typ": principal.type.value,
             "scp": list(scopes),
-            "ids": [
-                {"id": identity.id, "idp": identity.provider}
-                for identity in principal.identities
-            ],
+            "ids": [{"id": identity.id, "idp": identity.provider} for identity in principal.identities],
             "state": session.state or {},
         }
         access_token = create_access_token(
@@ -766,7 +756,7 @@ def build_authorize_route(authenticator, provider):
         # Always request ``openid`` and ``offline_access`` so the IdP returns a
         # refresh_token in the code exchange.  Authenticators (e.g. Entra) may
         # advertise extra scopes via an ``extra_scopes`` attribute to obtain
-        # per-resource access tokens.  
+        # per-resource access tokens.
         scopes = {"openid", "profile", "email", "offline_access"}
         scopes.update(getattr(authenticator, "extra_scopes", []) or [])
 
@@ -1140,10 +1130,7 @@ def build_device_code_token_route(authenticator, provider):
                 "sub": principal.uuid.hex,
                 "sub_typ": principal.type.value,
                 "scp": list(scopes),
-                "ids": [
-                    {"id": ident.id, "idp": ident.provider}
-                    for ident in principal.identities
-                ],
+                "ids": [{"id": ident.id, "idp": ident.provider} for ident in principal.identities],
                 "state": session.state or {},
             }
             access_token = create_access_token(
@@ -1372,10 +1359,7 @@ def slide_session(refresh_token, settings, db, api_access_manager):
         "sub": principal.uuid.hex,
         "sub_typ": principal.type.value,
         "scp": list(scopes),
-        "ids": [
-            {"id": identity.id, "idp": identity.provider}
-            for identity in principal.identities
-        ],
+        "ids": [{"id": identity.id, "idp": identity.provider} for identity in principal.identities],
         "state": session.state or {},
     }
     access_token = create_access_token(

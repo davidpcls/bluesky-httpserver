@@ -308,9 +308,7 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
                 initialize_database(engine)
                 logger.info("Database initialized.")
             except DatabaseUpgradeNeeded:
-                logger.info(
-                    f"Database at {redacted_url} is out of date. Upgrading to {REQUIRED_REVISION}..."
-                )
+                logger.info(f"Database at {redacted_url} is out of date. Upgrading to {REQUIRED_REVISION}...")
                 upgrade(engine, REQUIRED_REVISION)
                 logger.info("Database upgraded.")
             else:
