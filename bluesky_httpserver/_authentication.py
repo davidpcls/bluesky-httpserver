@@ -159,18 +159,6 @@ def create_refresh_token(session_id, secret_key, expires_delta):
 
 
 def decode_token(token, secret_keys, proxied_authenticator=None):
-    """Decode a JWT.
-
-    Tries every bluesky-httpserver HMAC ``secret_key`` first (supports key
-    rotation).  If none succeed and a ``proxied_authenticator`` (typically a
-    :class:`bluesky_httpserver.authenticators.ProxiedOIDCAuthenticator`) is
-    provided, delegate to its ``decode_token`` so that access tokens minted
-    by an external OIDC provider (e.g. via device-code flow) are accepted.
-
-    Raises :class:`fastapi.HTTPException` with status 401 if the token cannot
-    be validated by either mechanism.  Propagates :class:`ExpiredSignatureError`
-    so the caller can surface a distinct "expired token" error.
-    """
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -179,53 +167,33 @@ def decode_token(token, secret_keys, proxied_authenticator=None):
     # The first key in settings.secret_keys is used for *encoding*.
     # All keys are tried for *decoding* until one works or they all
     # fail. They supports key rotation.
-    last_error = None
     for secret_key in secret_keys:
         try:
             return jwt.decode(token, secret_key, algorithms=[ALGORITHM])
         except ExpiredSignatureError:
-            # Do not let this be caught below with the other JWTError types.
-            raise
-        except JWTError as err:
-            last_error = err
-            # Try the next key in the key rotation.
-            continue
-    # None of the bluesky-httpserver HMAC keys accepted the token.
-    # Fall back to the proxied OIDC authenticator (if any) so that JWTs minted
-    # by an upstream provider — e.g. via device-code flow — are honored.
-    if proxied_authenticator is not None:
-        try:
-            return proxied_authenticator.decode_token(token)
-        except ExpiredSignatureError:
             raise
         except JWTError:
-            pass
-    raise credentials_exception from last_error
+            continue
+    # If none of the keys worked, try the proxied authenticator
+    # (e.g. tokens issued directly by an OIDC provider in the device code flow).
+    if proxied_authenticator:
+        return proxied_authenticator.decode_token(token)
+    raise credentials_exception
 
 
 def _extract_scopes(decoded_access_token, authenticator=None):
-    """Normalize the ``scopes`` set from an OIDC-decoded JWT.
+    """Extract scopes from a decoded access token.
 
-    OIDC providers spell the scope claim inconsistently:
-
-    * ``scp`` may be a space-separated string (Microsoft Entra) or a list.
-    * ``scope`` is typically a space-separated string.
-
-    Additionally, an authenticator with a ``scopes_map`` attribute (e.g.
-    :class:`EntraAuthenticator`) may already have translated raw provider
-    scopes into local scopes and stored the result in ``claims["scope"]``.
-    In that case, prefer the pre-translated value.
+    Tiled-minted tokens (auth code flow) store scopes as a list under "scp".
+    OIDC-provider tokens (device code flow) store them as a space-separated
+    string under "scope".  Handle both.
     """
-    scopes: set[str] = set()
-    scp = decoded_access_token.get("scp")
-    if isinstance(scp, list):
-        scopes.update(scp)
-    elif isinstance(scp, str) and scp:
-        scopes.update(scp.split())
-    scope = decoded_access_token.get("scope")
-    if isinstance(scope, str) and scope:
-        scopes.update(scope.split())
-    return scopes
+    if "scp" in decoded_access_token:
+        scp = decoded_access_token["scp"]
+        return set(scp) if isinstance(scp, list) else set(scp.split(" "))
+    if "scope" in decoded_access_token:
+        return set(decoded_access_token["scope"].split(" "))
+    return set()
 
 
 async def get_api_key(
