@@ -72,12 +72,13 @@ class _ReceiveSystemInfoSocket(threading.Thread):
 @pytest.mark.parametrize("use_custom_port", (False, True))
 @pytest.mark.parametrize("endpoint", ["/info/ws", "/status/ws"])
 def test_http_server_system_info_socket_1(
-    monkeypatch, re_manager_cmd, fastapi_server_fs, zmq_port, endpoint  # noqa F811
+    monkeypatch, re_manager_cmd, fastapi_server_fs, use_custom_port, endpoint  # noqa F811
 ):
     """
     Test for ``/info/ws`` and ``/status/ws`` websockets
     """
     # Start HTTP Server
+    zmq_port = get_free_tcp_port() if use_custom_port else None
     if zmq_port is not None:
         monkeypatch.setenv("QSERVER_ZMQ_INFO_ADDRESS", f"tcp://localhost:{zmq_port}")
     fastapi_server_fs()

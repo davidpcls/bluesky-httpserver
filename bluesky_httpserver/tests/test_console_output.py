@@ -96,7 +96,6 @@ def test_http_server_stream_console_output_1(
     monkeypatch,
     re_manager_cmd,
     fastapi_server_fs,
-    zmq_port,  # noqa F811
     use_custom_port,
 ):
     """
@@ -181,7 +180,6 @@ def test_http_server_console_output_1(
     monkeypatch,
     re_manager_cmd,
     fastapi_server_fs,
-    zmq_port,
     zmq_encoding,  # noqa F811
     use_custom_port,
 ):
@@ -265,7 +263,6 @@ def test_http_server_console_output_update_1(
     monkeypatch,
     re_manager_cmd,
     fastapi_server_fs,
-    zmq_port,  # noqa F811
     use_custom_port,
 ):
     """
@@ -411,7 +408,6 @@ def test_http_server_console_output_socket_1(
     monkeypatch,
     re_manager_cmd,
     fastapi_server_fs,
-    zmq_port,  # noqa F811
     use_custom_port,
 ):
     """
