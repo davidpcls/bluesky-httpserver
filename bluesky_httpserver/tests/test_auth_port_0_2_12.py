@@ -263,6 +263,7 @@ class TestExtractScopes:
         assert _auth._extract_scopes({}) == set()
         assert _auth._extract_scopes({"scp": "", "scope": ""}) == {""}
 
+
 # ---------------------------------------------------------------------------
 # Phase 4.1 - schemas.Principal.access_token
 # ---------------------------------------------------------------------------
