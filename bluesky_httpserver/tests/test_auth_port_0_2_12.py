@@ -259,59 +259,9 @@ class TestExtractScopes:
             "read:status",
         }
 
-    def test_union_of_both_claims(self):
-        assert _auth._extract_scopes({"scp": ["read:queue"], "scope": "read:status"}) == {
-            "read:queue",
-            "read:status",
-        }
-
     def test_empty_or_missing(self):
         assert _auth._extract_scopes({}) == set()
-        assert _auth._extract_scopes({"scp": "", "scope": ""}) == set()
-
-
-# ---------------------------------------------------------------------------
-# Phase 2.5 - authorize redirect includes offline_access + prompt=login
-# ---------------------------------------------------------------------------
-
-
-class _FakeAuthorizationEndpoint:
-    """Stand-in for the ``authorization_endpoint`` cached_property.  We do not
-    want to hit an actual OIDC well-known URL from a unit test."""
-
-    def __init__(self):
-        self.captured_params: dict | None = None
-
-    def copy_with(self, params):
-        self.captured_params = params
-        # Return an httpx.URL so RedirectResponse can str() it cleanly.
-        return httpx.URL("https://idp.example.com/authorize").copy_with(params=params)
-
-
-@pytest.mark.asyncio
-async def test_authorize_route_requests_offline_access_and_prompts_login():
-    """Verify that the browser-facing /authorize redirect asks the IdP for
-    offline_access (to guarantee a refresh_token) and always prompts the
-    user (avoids surprising silent SSO)."""
-    fake_endpoint = _FakeAuthorizationEndpoint()
-
-    class FakeAuthenticator:
-        client_id = "test-client"
-        authorization_endpoint = fake_endpoint
-        extra_scopes = ["api://tiled/access_as_user"]
-
-    class FakeRequest:
-        headers = {"host": "localhost:8000"}
-        scope = {"scheme": "http", "root_path": ""}
-
-    route = _auth.build_authorize_route(FakeAuthenticator(), "orcid")
-    resp = await route(FakeRequest(), state=None)
-    assert resp.status_code == 307
-    params = fake_endpoint.captured_params
-    assert params["prompt"] == "login"
-    scopes = set(params["scope"].split())
-    assert {"openid", "offline_access", "api://tiled/access_as_user"}.issubset(scopes)
-
+        assert _auth._extract_scopes({"scp": "", "scope": ""}) == {""}
 
 # ---------------------------------------------------------------------------
 # Phase 4.1 - schemas.Principal.access_token

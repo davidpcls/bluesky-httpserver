@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 import requests
-from bluesky_queueserver.manager.tests.common import re_manager_cmd, re_manager_factory  # noqa F401
+from bluesky_queueserver.manager.tests.common import re_manager_factory  # noqa F401
 from websockets.sync.client import connect
 
 from bluesky_httpserver.tests.conftest import (  # noqa F401
@@ -170,6 +170,7 @@ lines
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_1(
     monkeypatch,
+    re_manager_cmd,
     fastapi_server_fs,
     zmq_port,
     zmq_encoding,  # noqa F811
@@ -251,6 +252,7 @@ def test_http_server_console_output_1(
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_update_1(
     monkeypatch,
+    re_manager_cmd,
     fastapi_server_fs,
     zmq_port,  # noqa F811
 ):
@@ -394,6 +396,7 @@ class _ReceiveConsoleOutputSocket(threading.Thread):
 @pytest.mark.parametrize("zmq_port", (None, 60619))
 def test_http_server_console_output_socket_1(
     monkeypatch,
+    re_manager_cmd,
     fastapi_server_fs,
     zmq_port,  # noqa F811
 ):
