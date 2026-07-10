@@ -285,8 +285,8 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             from .database import orm
             from .database.core import (  # make_admin_by_identity,
                 REQUIRED_REVISION,
-                UninitializedDatabase,
                 DatabaseUpgradeNeeded,
+                UninitializedDatabase,
                 check_database,
                 initialize_database,
                 upgrade,

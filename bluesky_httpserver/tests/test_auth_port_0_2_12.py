@@ -46,7 +46,6 @@ from bluesky_httpserver.database.core import (
     get_or_create_principal,
 )
 
-
 # ---------------------------------------------------------------------------
 # Shared OIDC fixtures (mirrors ones in test_authenticators.py so this file
 # can be run standalone).
