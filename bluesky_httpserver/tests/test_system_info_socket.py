@@ -1,8 +1,8 @@
 import json
 import pprint
+import socket
 import threading
 import time as ttime
-import socket
 
 import pytest
 from bluesky_queueserver.manager.tests.common import re_manager_cmd, re_manager_factory  # noqa F401
@@ -19,6 +19,7 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     wait_for_environment_to_be_created,
     wait_for_manager_state_idle,
 )
+
 
 def get_free_tcp_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

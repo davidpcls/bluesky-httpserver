@@ -1,10 +1,10 @@
 import json
 import pprint
 import re
+import socket
 import threading
 import time as ttime
 from typing import Any
-import socket
 
 import pytest
 import requests
@@ -22,10 +22,12 @@ from bluesky_httpserver.tests.conftest import (  # noqa F401
     wait_for_manager_state_idle,
 )
 
+
 def get_free_tcp_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
 
 class _ReceiveStreamedConsoleOutput(threading.Thread):
     """
