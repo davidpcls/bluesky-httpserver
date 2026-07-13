@@ -3,13 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-
 from bluesky_httpserver import schemas
 from bluesky_httpserver.database import orm as db_orm
 from bluesky_httpserver.database.core import (
     create_user,
     get_or_create_principal,
 )
+
 
 def test_principal_carries_access_token_field():
     """Externally-authenticated principals attach the raw OIDC access token

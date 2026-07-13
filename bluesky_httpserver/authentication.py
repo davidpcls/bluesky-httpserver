@@ -47,7 +47,6 @@ else:
 
 from . import schemas
 from .authorization._defaults import _DEFAULT_ANONYMOUS_PROVIDER_NAME
-from .protocols import InternalAuthenticator
 from .core import json_or_msgpack
 from .database import orm
 from .database.core import (
@@ -59,6 +58,7 @@ from .database.core import (
     lookup_valid_pending_session_by_user_code,
     lookup_valid_session,
 )
+from .protocols import InternalAuthenticator
 from .settings import get_sessionmaker, get_settings
 from .utils import (
     API_KEY_COOKIE_NAME,
@@ -676,9 +676,7 @@ def build_auth_code_route(authenticator, provider):
     return auth_code
 
 
-def add_internal_routes(
-        router: APIRouter, provider: str, authenticator: InternalAuthenticator
-):
+def add_internal_routes(router: APIRouter, provider: str, authenticator: InternalAuthenticator):
     "Register a handle_credentials route function for this Authenticator."
 
     @router.post(f"/provider/{provider}/token")
@@ -715,36 +713,21 @@ def add_internal_routes(
 
     return handle_credentials
 
-def add_external_routes(
-    router: APIRouter, provider: str, authenticator: InternalAuthenticator
-):
-    router.get(f"/provider/{provider}/code")(
-        build_auth_code_route(authenticator, provider)
-    )
-    router.post(f"/provider/{provider}/code")(
-        build_auth_code_route(authenticator, provider)
-    )
+
+def add_external_routes(router: APIRouter, provider: str, authenticator: InternalAuthenticator):
+    router.get(f"/provider/{provider}/code")(build_auth_code_route(authenticator, provider))
+    router.post(f"/provider/{provider}/code")(build_auth_code_route(authenticator, provider))
     # Device code flow routes for CLI/headless clients
     # GET /authorize - redirects browser to OIDC provider
-    router.get(f"/provider/{provider}/authorize")(
-        build_authorize_route(authenticator, provider)
-    )
+    router.get(f"/provider/{provider}/authorize")(build_authorize_route(authenticator, provider))
     # POST /authorize - initiates device code flow (returns device_code, user_code, etc.)
-    router.post(f"/provider/{provider}/authorize")(
-        build_device_code_authorize_route(authenticator, provider)
-    )
+    router.post(f"/provider/{provider}/authorize")(build_device_code_authorize_route(authenticator, provider))
     # GET /device_code - shows user code entry form
-    router.get(f"/provider/{provider}/device_code")(
-        build_device_code_form_route(authenticator, provider)
-    )
+    router.get(f"/provider/{provider}/device_code")(build_device_code_form_route(authenticator, provider))
     # POST /device_code - handles user code submission after browser auth
-    router.post(f"/provider/{provider}/device_code")(
-        build_device_code_submit_route(authenticator, provider)
-    )
+    router.post(f"/provider/{provider}/device_code")(build_device_code_submit_route(authenticator, provider))
     # POST /token - CLI client polls this for tokens
-    router.post(f"/provider/{provider}/token")(
-        build_device_code_token_route(authenticator, provider)
-    )
+    router.post(f"/provider/{provider}/token")(build_device_code_token_route(authenticator, provider))
     # Warn if the operator forgot to configure a redirect target
     # for successful browser-based logins. Without it the user
     # will get a page of raw JSON instead of being sent to the UI.

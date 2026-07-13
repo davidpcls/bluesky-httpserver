@@ -6,6 +6,7 @@ from respx import MockRouter
 
 from bluesky_httpserver.authenticators import ProxiedOIDCAuthenticator
 
+
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestProxiedOIDCAuthenticator:
     """Tests for ProxiedOIDCAuthenticator class."""

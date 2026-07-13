@@ -15,7 +15,6 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from .protocols import ExternalAuthenticator, InternalAuthenticator
 from .authenticators import ProxiedOIDCAuthenticator
 from .console_output import (
     CollectPublishedConsoleOutput,
@@ -24,6 +23,7 @@ from .console_output import (
 )
 from .core import PatchedStreamingResponse
 from .database.core import purge_expired
+from .protocols import ExternalAuthenticator, InternalAuthenticator
 from .resources import SERVER_RESOURCES as SR
 from .routers import core_api
 from .settings import get_settings
@@ -163,9 +163,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
         logger.info("All custom routers are included successfully.")
 
     from .authentication import (
-        base_authentication_router,
-        add_internal_routes,
         add_external_routes,
+        add_internal_routes,
+        base_authentication_router,
         oauth2_scheme,
     )
 

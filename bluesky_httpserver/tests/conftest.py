@@ -11,9 +11,9 @@ from bluesky_queueserver.manager.tests.common import set_qserver_zmq_encoding  #
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jose.backends import RSAKey
 from respx import MockRouter
-from xprocess import ProcessStarter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from xprocess import ProcessStarter
 
 import bluesky_httpserver.server as bqss
 from bluesky_httpserver.database.base import Base
