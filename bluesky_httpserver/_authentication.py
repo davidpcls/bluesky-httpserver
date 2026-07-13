@@ -765,6 +765,7 @@ def build_authorize_route(authenticator, provider):
             "response_type": "code",
             "scope": " ".join(sorted(scopes)),
             "redirect_uri": redirect_uri,
+            "prompt": "login",
         }
         if state:
             params["state"] = state
@@ -802,6 +803,7 @@ def build_device_code_authorize_route(authenticator, provider):
                 "scope": " ".join(sorted(scopes)),
                 "redirect_uri": f"{get_base_url(request)}/auth/provider/{provider}/device_code",
                 "state": pending_session["user_code"].replace("-", ""),
+                "prompt": "login",
             }
         )
         return {
