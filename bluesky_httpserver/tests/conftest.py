@@ -12,8 +12,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jose.backends import RSAKey
 from respx import MockRouter
 from xprocess import ProcessStarter
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import bluesky_httpserver.server as bqss
+from bluesky_httpserver.database.base import Base
 
 SERVER_ADDRESS = "localhost"
 SERVER_PORT = "60610"
@@ -271,6 +274,19 @@ def mock_oidc_server(
         return_value=httpx.Response(httpx.codes.OK, json={"keys": json_web_keyset})
     )
     return respx_mock
+
+
+@pytest.fixture
+def sqlite_session():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        engine.dispose()
 
 
 # ============================================================================

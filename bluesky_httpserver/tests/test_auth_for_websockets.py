@@ -9,7 +9,7 @@ from bluesky_queueserver.manager.tests.common import re_manager, re_manager_cmd,
 from sqlalchemy.orm import sessionmaker
 from websockets.sync.client import connect
 
-from bluesky_httpserver import _authentication as _auth
+from bluesky_httpserver import authentication as _auth
 from bluesky_httpserver.database import orm as db_orm
 from bluesky_httpserver.database.core import create_user
 
@@ -274,7 +274,7 @@ def test_authenticate_websocket_first_message_accepts_valid_api_key(sqlite_sessi
         settings=settings,
     )
 
-    import bluesky_httpserver._authentication as auth_mod
+    import bluesky_httpserver.authentication as auth_mod
 
     saved = auth_mod.get_sessionmaker
     auth_mod.get_sessionmaker = _fake_sessionmaker
@@ -310,7 +310,7 @@ def test_authenticate_websocket_first_message_rejects_bad_api_key(sqlite_session
         settings=settings,
     )
 
-    import bluesky_httpserver._authentication as auth_mod
+    import bluesky_httpserver.authentication as auth_mod
 
     saved = auth_mod.get_sessionmaker
     auth_mod.get_sessionmaker = _fake_sessionmaker

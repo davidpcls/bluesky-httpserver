@@ -47,6 +47,7 @@ else:
 
 from . import schemas
 from .authorization._defaults import _DEFAULT_ANONYMOUS_PROVIDER_NAME
+from .protocols import InternalAuthenticator
 from .core import json_or_msgpack
 from .database import orm
 from .database.core import (
@@ -235,7 +236,7 @@ def _find_proxied_authenticator(authenticators):
     """Return the first authenticator that is a ``ProxiedOIDCAuthenticator``.
 
     Imported lazily to avoid a top-level circular import between
-    ``_authentication.py`` and ``authenticators.py``.
+    ``authentication.py`` and ``authenticators.py``.
     """
     if not authenticators:
         return None
@@ -675,9 +676,12 @@ def build_auth_code_route(authenticator, provider):
     return auth_code
 
 
-def build_handle_credentials_route(authenticator, provider):
+def add_internal_routes(
+        router: APIRouter, provider: str, authenticator: InternalAuthenticator
+):
     "Register a handle_credentials route function for this Authenticator."
 
+    @router.post(f"/provider/{provider}/token")
     async def handle_credentials(
         request: Request,
         form_data: OAuth2PasswordRequestForm = Depends(),
@@ -710,6 +714,50 @@ def build_handle_credentials_route(authenticator, provider):
         )
 
     return handle_credentials
+
+def add_external_routes(
+    router: APIRouter, provider: str, authenticator: InternalAuthenticator
+):
+    router.get(f"/provider/{provider}/code")(
+        build_auth_code_route(authenticator, provider)
+    )
+    router.post(f"/provider/{provider}/code")(
+        build_auth_code_route(authenticator, provider)
+    )
+    # Device code flow routes for CLI/headless clients
+    # GET /authorize - redirects browser to OIDC provider
+    router.get(f"/provider/{provider}/authorize")(
+        build_authorize_route(authenticator, provider)
+    )
+    # POST /authorize - initiates device code flow (returns device_code, user_code, etc.)
+    router.post(f"/provider/{provider}/authorize")(
+        build_device_code_authorize_route(authenticator, provider)
+    )
+    # GET /device_code - shows user code entry form
+    router.get(f"/provider/{provider}/device_code")(
+        build_device_code_form_route(authenticator, provider)
+    )
+    # POST /device_code - handles user code submission after browser auth
+    router.post(f"/provider/{provider}/device_code")(
+        build_device_code_submit_route(authenticator, provider)
+    )
+    # POST /token - CLI client polls this for tokens
+    router.post(f"/provider/{provider}/token")(
+        build_device_code_token_route(authenticator, provider)
+    )
+    # Warn if the operator forgot to configure a redirect target
+    # for successful browser-based logins. Without it the user
+    # will get a page of raw JSON instead of being sent to the UI.
+    if not getattr(authenticator, "redirect_on_success", None):
+        logger.warning(
+            "External authenticator %r has no 'redirect_on_success' "
+            "configured. Browser-based login will return raw JSON "
+            "tokens instead of redirecting to a UI landing page. "
+            "Set 'redirect_on_success' in the authenticator "
+            "configuration to a UI callback URL to silence this "
+            "warning.",
+            provider,
+        )
 
 
 def create_pending_session(db):

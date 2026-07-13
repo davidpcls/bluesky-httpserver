@@ -13,7 +13,7 @@ from jose import ExpiredSignatureError, jwt
 from respx import MockRouter
 from starlette.datastructures import URL, QueryParams
 
-from bluesky_httpserver import _authentication as _auth
+from bluesky_httpserver import authentication as _auth
 
 from ..authenticators import (
     EntraAuthenticator,

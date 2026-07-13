@@ -17,7 +17,7 @@ from jose import JWTError, jwt
 from pydantic import Secret
 from starlette.responses import RedirectResponse
 
-from .authentication import (
+from .protocols import (
     ExternalAuthenticator,
     InternalAuthenticator,
     UserSessionState,

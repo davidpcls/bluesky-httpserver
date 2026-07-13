@@ -15,7 +15,7 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from .authentication import ExternalAuthenticator, InternalAuthenticator
+from .protocols import ExternalAuthenticator, InternalAuthenticator
 from .authenticators import ProxiedOIDCAuthenticator
 from .console_output import (
     CollectPublishedConsoleOutput,
@@ -164,13 +164,8 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
 
     from .authentication import (
         base_authentication_router,
-        build_auth_code_route,
-        build_authorize_route,
-        build_device_code_authorize_route,
-        build_device_code_form_route,
-        build_device_code_submit_route,
-        build_device_code_token_route,
-        build_handle_credentials_route,
+        add_internal_routes,
+        add_external_routes,
         oauth2_scheme,
     )
 
@@ -190,54 +185,9 @@ def build_app(authentication=None, api_access=None, resource_access=None, server
             provider = spec["provider"]
             authenticator = spec["authenticator"]
             if isinstance(authenticator, InternalAuthenticator):
-                authentication_router.post(f"/provider/{provider}/token")(
-                    build_handle_credentials_route(authenticator, provider)
-                )
+                add_internal_routes(authentication_router, provider, authenticator)
             elif isinstance(authenticator, ExternalAuthenticator):
-                # Standard OAuth callback route (authorization code flow)
-                authentication_router.get(f"/provider/{provider}/code")(
-                    build_auth_code_route(authenticator, provider)
-                )
-                authentication_router.post(f"/provider/{provider}/code")(
-                    build_auth_code_route(authenticator, provider)
-                )
-                # Device code flow routes for CLI/headless clients
-                # GET /authorize - redirects browser to OIDC provider
-                authentication_router.get(f"/provider/{provider}/authorize")(
-                    build_authorize_route(authenticator, provider)
-                )
-                # POST /authorize - initiates device code flow (returns device_code, user_code, etc.)
-                authentication_router.post(f"/provider/{provider}/authorize")(
-                    build_device_code_authorize_route(authenticator, provider)
-                )
-                # GET /device_code - shows user code entry form
-                authentication_router.get(f"/provider/{provider}/device_code")(
-                    build_device_code_form_route(authenticator, provider)
-                )
-                # POST /device_code - handles user code submission after browser auth
-                authentication_router.post(f"/provider/{provider}/device_code")(
-                    build_device_code_submit_route(authenticator, provider)
-                )
-                # POST /token - CLI client polls this for tokens
-                authentication_router.post(f"/provider/{provider}/token")(
-                    build_device_code_token_route(authenticator, provider)
-                )
-                # Warn if the operator forgot to configure a redirect target
-                # for successful browser-based logins. Without it the user
-                # will get a page of raw JSON instead of being sent to the UI.
-                if not getattr(authenticator, "redirect_on_success", None):
-                    logger.warning(
-                        "External authenticator %r has no 'redirect_on_success' "
-                        "configured. Browser-based login will return raw JSON "
-                        "tokens instead of redirecting to a UI landing page. "
-                        "Set 'redirect_on_success' in the authenticator "
-                        "configuration to a UI callback URL to silence this "
-                        "warning.",
-                        provider,
-                    )
-                # Expose the OIDC provider name on app.state so that
-                # get_current_principal / websocket handshakes can resolve
-                # externally-minted JWTs to a Principal in the auth DB.
+                add_external_routes(authentication_router, provider, authenticator)
                 if isinstance(authenticator, ProxiedOIDCAuthenticator):
                     app.state.provider = provider
             else:
