@@ -5,7 +5,7 @@ import secrets
 import uuid as uuid_module
 import warnings
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -28,6 +28,8 @@ from fastapi.security import (
 from fastapi.security.api_key import APIKeyBase, APIKeyCookie, APIKeyQuery
 from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.exc import IntegrityError
+
+from .authenticators import ProxiedOIDCAuthenticator
 
 # To hide third-party warning
 # .../jose/backends/cryptography_backend.py:18: CryptographyDeprecationWarning:
@@ -159,7 +161,9 @@ def create_refresh_token(session_id, secret_key, expires_delta):
     return encoded_jwt
 
 
-def decode_token(token, secret_keys, proxied_authenticator=None):
+def decode_token(
+    token: str, secret_keys: List[str], proxied_authenticator: Optional[ProxiedOIDCAuthenticator] = None
+) -> dict[str, Any]:
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -170,7 +174,8 @@ def decode_token(token, secret_keys, proxied_authenticator=None):
     # fail. They supports key rotation.
     for secret_key in secret_keys:
         try:
-            return jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+            return payload
         except ExpiredSignatureError:
             raise
         except JWTError:
@@ -182,7 +187,9 @@ def decode_token(token, secret_keys, proxied_authenticator=None):
     raise credentials_exception
 
 
-def _extract_scopes(decoded_access_token, authenticator=None):
+def _extract_scopes(
+    decoded_access_token: dict[str, Any],
+) -> set[str]:
     """Extract scopes from a decoded access token.
 
     Tiled-minted tokens (auth code flow) store scopes as a list under "scp".
@@ -208,56 +215,56 @@ async def get_api_key(
     return None
 
 
-def get_session_state(
+def headers_for_401(request: Request, security_scopes: SecurityScopes):
+    # call directly from methods, rather than as a dependency, to avoid calling
+    # when not needed.
+    if security_scopes.scopes:
+        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
+    else:
+        authenticate_value = "Bearer"
+    headers_for_401 = {
+        "WWW-Authenticate": authenticate_value,
+        "X-Tiled-Root": get_base_url(request),
+    }
+    return headers_for_401
+
+
+async def get_decoded_access_token(
+    request: Request,
+    security_scopes: SecurityScopes,
     access_token: str = Depends(oauth2_scheme),
     settings: BaseSettings = Depends(get_settings),
-    authenticators=Depends(get_authenticators),
 ):
-    """FastAPI dependency: return the ``state`` dict embedded in the current
-    access token, if any, else ``{}``.
-
-    This mirrors tiled's ``get_session_state`` and lets downstream routes
-    retrieve authenticator-supplied state (e.g. upstream OIDC tokens for OBO
-    exchange) without a database round-trip.
-    """
     if not access_token:
-        return {}
-    proxied_auth = _find_proxied_authenticator(authenticators)
+        return None
     try:
-        payload = decode_token(access_token, settings.secret_keys, proxied_auth)
-    except HTTPException:
-        return {}
+        payload = decode_token(access_token, settings.secret_keys, settings.authenticator)
     except ExpiredSignatureError:
-        return {}
-    return payload.get("state") or {}
+        raise HTTPException(
+            status_code=401,
+            detail="Access token has expired. Refresh token.",
+            headers=headers_for_401(request, security_scopes),
+        )
+    return payload
 
 
-def _find_proxied_authenticator(authenticators):
-    """Return the first authenticator that is a ``ProxiedOIDCAuthenticator``.
-
-    Imported lazily to avoid a top-level circular import between
-    ``authentication.py`` and ``authenticators.py``.
+def move_api_key(request: Request, api_key: Optional[str] = Depends(get_api_key)):
     """
-    if not authenticators:
-        return None
-    try:
-        from .authenticators import ProxiedOIDCAuthenticator
-    except ImportError:
-        return None
-    if isinstance(authenticators, dict):
-        candidates = authenticators.values()
-    else:
-        candidates = authenticators
-    for a in candidates:
-        if isinstance(a, ProxiedOIDCAuthenticator):
-            return a
-    return None
+    Move API key from query parameter to cookie.
+
+    When a URL with an API key in the query parameter is opened in a browser,
+    the API key is set as a cookie so that subsequent requests from the browser
+    are authenticated. (This approach was inspired by Jupyter notebook.)
+    """
+    if ("api_key" in request.query_params) and (request.cookies.get(API_KEY_COOKIE_NAME) != api_key):
+        request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
 
 
 def get_current_principal(
     request: Request,
     security_scopes: SecurityScopes,
     access_token: str = Depends(oauth2_scheme),
+    decoded_access_token: str = Depends(get_decoded_access_token),
     api_key: str = Depends(get_api_key),
     settings: BaseSettings = Depends(get_settings),
     authenticators=Depends(get_authenticators),
@@ -274,205 +281,176 @@ def get_current_principal(
     If this server is configured with a "single-user API key", then
     the Principal will be SpecialUsers.admin always.
     """
-    if security_scopes.scopes:
-        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
-    else:
-        authenticate_value = "Bearer"
-    headers_for_401 = {
-        "WWW-Authenticate": authenticate_value,
-        "X-Tiled-Root": get_base_url(request),
-    }
 
     # 'api_key_scopes'  is a set of allowed scopes for API key if authorized with API key.
     #   otherwise it is None. The original set of API key scopes is used for generating new
     #   API keys.
     roles, scopes, api_key_scopes = {}, {}, None
     if api_key is not None:
-        if authenticators:
-            # Tiled is in a multi-user configuration with authentication providers.
-            with get_sessionmaker(settings.database_settings)() as db:
-                # We store the hashed value of the API key secret.
-                # By comparing hashes we protect against timing attacks.
-                # By storing only the hash of the (high-entropy) secret
-                # we reduce the value of that an attacker can extracted from a
-                # stolen database backup.
-                try:
-                    secret = bytes.fromhex(api_key)
-                except Exception:
-                    # Not valid hex, therefore not a valid API key
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Invalid API key",
-                        headers=headers_for_401,
-                    )
-                api_key_orm = lookup_valid_api_key(db, secret)
-                if api_key_orm is not None:
-                    principal = schemas.Principal.from_orm(api_key_orm.principal)
-                    ids = get_current_username(
-                        principal=principal, settings=settings, api_access_manager=api_access_manager
-                    )
-                    scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
-                    principal_scopes = set.union(*scope_sets) if scope_sets else set()
-
-                    roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
-                    roles = set.union(*roles_sets) if roles_sets else set()
-
-                    # principal_scopes = set().union(*[role.scopes for role in principal.roles])
-
-                    # This intersection addresses the case where the Principal has
-                    # lost a scope that they had when this key was created.
-                    api_key_scopes = set(api_key_orm.scopes)
-                    scopes = api_key_scopes.intersection(principal_scopes | {"inherit"})
-                    if "inherit" in scopes:
-                        # The scope "inherit" is a metascope that confers all the
-                        # scopes for the Principal associated with this API,
-                        # resolved at access time.
-                        scopes.update(principal_scopes)
-                        scopes.discard("inherit")
-                    api_key_orm.latest_activity = utcnow()
-                    db.commit()
-                else:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Invalid API key",
-                        headers=headers_for_401,
-                    )
-        else:
-            # HTTP Server is in a "single user" mode with only one API key.
-            if secrets.compare_digest(api_key, settings.single_user_api_key):
-                username = SpecialUsers.single_user.value
-                scopes = api_access_manager.get_user_scopes(username)
-                roles = api_access_manager.get_user_roles(username)
-
-                principal = schemas.Principal(
-                    uuid=uuid_module.uuid4(),  # Generate unique UUID each time - it is not expected to be used
-                    type="user",
-                    identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
-                )
-
-            else:
-                raise HTTPException(status_code=401, detail="Invalid API key", headers=headers_for_401)
-        # If we made it to this point, we have a valid API key.
-        # If the API key was given in query param, move to cookie.
-        # This is convenient for browser-based access.
-        if ("api_key" in request.query_params) and (request.cookies.get(API_KEY_COOKIE_NAME) != api_key):
-            request.state.cookies_to_set.append({"key": API_KEY_COOKIE_NAME, "value": api_key})
-    elif access_token is not None:
-        proxied_authenticator = _find_proxied_authenticator(authenticators)
-        try:
-            payload = decode_token(access_token, settings.secret_keys, proxied_authenticator)
-        except ExpiredSignatureError:
+        with get_sessionmaker(settings.database_settings)() as db:
+            roles, scopes, principal = get_current_principal_from_api_key(
+                api_key, authenticators, db, settings, api_access_manager
+            )
+        move_api_key(request, api_key)
+        if principal is None and authenticators:
             raise HTTPException(
                 status_code=401,
-                detail="Access token has expired. Refresh token.",
-                headers=headers_for_401,
+                detail="Invalid API key",
+                headers=headers_for_401(request, security_scopes),
             )
+    elif decoded_access_token is not None:
+        roles, scopes, principal = get_current_principal_from_token(
+            authenticators, access_token, decoded_access_token, settings, api_access_manager, request
+        )
+    else:
+        roles, scopes, principal = get_current_principal_single_user(settings, api_access_manager)
 
-        if "sub_typ" in payload:
-            # Token minted by bluesky-httpserver (login / refresh / device-code
-            # flow).  ``payload`` carries everything needed to reconstruct the
-            # Principal without a database hit.
-            principal = schemas.Principal(
-                uuid=uuid_module.UUID(hex=payload["sub"]),
-                type=payload["sub_typ"],
-                identities=[
-                    schemas.Identity(id=identity["id"], provider=identity["idp"]) for identity in payload["ids"]
-                ],
+    check_scopes(request, security_scopes, scopes)
+
+    return cleanup_scopes(roles, scopes, api_key_scopes, principal)
+
+
+def get_current_principal_from_api_key(
+    api_key: str,
+    authenticators,
+    db,
+    settings: BaseSettings,
+    api_access_manager,
+):
+    """
+    Tiled is in a multi-user configuration with authentication providers.
+    We store the hashed value of the API key secret.
+    By comparing hashes we protect against timing attacks.
+    By storing only the hash of the (high-entropy) secret
+    we reduce the value of that an attacker can extracted from a
+    stolen database backup.
+    """
+    if authenticators:
+
+        try:
+            secret = bytes.fromhex(api_key)
+        except Exception:
+            return None, None, None
+
+        api_key_orm = lookup_valid_api_key(db, secret)
+        if api_key_orm is not None:
+            principal = schemas.Principal.from_orm(api_key_orm.principal)
+            ids = get_current_username(
+                principal=principal, settings=settings, api_access_manager=api_access_manager
             )
-
-            # scopes = payload["scp"]
-
-            # Combine scopes for all identities (it is expected to be only one identity).
-            ids = [_["id"] for _ in payload["ids"] if _["idp"] in settings.authentication_provider_names]
-            scopes_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
-            scopes = set.union(*scopes_sets) if scopes_sets else set()
+            scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
+            principal_scopes = set.union(*scope_sets) if scope_sets else set()
 
             roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
             roles = set.union(*roles_sets) if roles_sets else set()
 
+            # This intersection addresses the case where the Principal has
+            # lost a scope that they had when this key was created.
+            api_key_scopes = set(api_key_orm.scopes)
+            scopes = api_key_scopes.intersection(principal_scopes | {"inherit"})
+            if "inherit" in scopes:
+                # The scope "inherit" is a metascope that confers all the
+                # scopes for the Principal associated with this API,
+                # resolved at access time.
+                scopes.update(principal_scopes)
+                scopes.discard("inherit")
+            api_key_orm.latest_activity = utcnow()
+            db.commit()
+            return roles, scopes, principal
         else:
-            # Token minted by an external OIDC provider (proxied OIDC flow).
-            # Resolve the Principal via the auth DB, using the app-scoped
-            # provider name that was set at startup.
-            if proxied_authenticator is None:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Access token is not recognized",
-                    headers=headers_for_401,
-                )
-            identity_id = payload.get("user") or payload.get("sub")
-            if identity_id is None:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Access token missing subject",
-                    headers=headers_for_401,
-                )
-            provider = getattr(request.app.state, "provider", None)
-            if provider is None:
-                # Fall back to the first configured provider name.  In practice
-                # ``app.state.provider`` is set by build_app() whenever a
-                # ProxiedOIDCAuthenticator is configured, but we do not want
-                # to fail if someone bootstraps the app differently.
-                provider = (
-                    settings.authentication_provider_names[0]
-                    if settings.authentication_provider_names
-                    else _DEFAULT_ANONYMOUS_PROVIDER_NAME
-                )
-            with get_sessionmaker(settings.database_settings)() as db:
-                principal_orm = get_or_create_principal(db, provider, identity_id)
-                principal = schemas.Principal(
-                    uuid=principal_orm.uuid,
-                    type=schemas.PrincipalType.user,
-                    identities=[schemas.Identity(id=identity_id, provider=provider)],
-                    access_token=access_token,
-                )
-            # Combine scopes carried in the token itself with any additional
-            # scopes granted to this user by the api_access_manager (which is
-            # the fork's replacement for tiled's DB-role machinery).
-            token_scopes = _extract_scopes(payload, proxied_authenticator)
-            if api_access_manager.is_user_known(identity_id):
-                extra_scopes = api_access_manager.get_user_scopes(identity_id)
-                roles = api_access_manager.get_user_roles(identity_id)
-            else:
-                extra_scopes = set()
-                roles = set()
-            scopes = set(token_scopes) | set(extra_scopes)
-
+            return None, None, None
     else:
-        # No form of authentication is present.
-        username = SpecialUsers.public.value
-        # This is a 'dummy' principal used to pass data within the server. Not saved to the databased.
+        username = SpecialUsers.single_user.value
+        scopes = api_access_manager.get_user_scopes(username)
+        roles = api_access_manager.get_user_roles(username)
+
         principal = schemas.Principal(
             uuid=uuid_module.uuid4(),  # Generate unique UUID each time - it is not expected to be used
             type="user",
             identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
         )
+        return roles, scopes, principal
 
-        # Is anonymous public access permitted?
-        if settings.allow_anonymous_access:
-            # Any user who can see the server can make unauthenticated requests.
-            # This is a sentinel that has special meaning to the authorization
-            # code (the access control policies).
-            scopes = api_access_manager.get_user_scopes(username)
-            roles = api_access_manager.get_user_roles(username)
 
+def get_current_principal_from_token(
+    authenticators, access_token, decoded_access_token, settings, api_access_manager, request
+):
+
+    if "sub_typ" in decoded_access_token:
+        principal = schemas.Principal(
+            uuid=uuid_module.UUID(hex=decoded_access_token["sub"]),
+            type=decoded_access_token["sub_typ"],
+            identities=[
+                schemas.Identity(id=identity["id"], provider=identity["idp"])
+                for identity in decoded_access_token["ids"]
+            ],
+        )
+
+        ids = [_["id"] for _ in decoded_access_token["ids"] if _["idp"] in settings.authentication_provider_names]
+        scopes_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
+        scopes = set.union(*scopes_sets) if scopes_sets else set()
+
+        roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
+        roles = set.union(*roles_sets) if roles_sets else set()
+
+    else:
+
+        identity_id = decoded_access_token.get("user") or decoded_access_token.get("sub")
+        provider = request.app.state.provider
+
+        with get_sessionmaker(settings.database_settings)() as db:
+            principal_orm = get_or_create_principal(db, provider, identity_id)
+            principal = schemas.Principal(
+                uuid=principal_orm.uuid,
+                type=schemas.PrincipalType.user,
+                identities=[schemas.Identity(id=identity_id, provider=provider)],
+                access_token=access_token,
+            )
+        # Combine scopes carried in the token itself with any additional
+        # scopes granted to this user by the api_access_manager (which is
+        # the fork's replacement for tiled's DB-role machinery).
+
+        token_scopes = _extract_scopes(decoded_access_token)
+        if api_access_manager.is_user_known(identity_id):
+            extra_scopes = api_access_manager.get_user_scopes(identity_id)
+            roles = api_access_manager.get_user_roles(identity_id)
         else:
-            # In this mode, there may still be entries that are visible to all,
-            # but users have to authenticate as *someone* to see anything.
-            # They can still access the /  and /docs routes.
-            scopes = {}
-            roles = {}
+            extra_scopes = set()
+            roles = set()
+        scopes = set(token_scopes) | set(extra_scopes)
+    return roles, scopes, principal
 
-    # Scope enforcement happens here.
-    # https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/
+
+def get_current_principal_single_user(settings: BaseSettings, api_access_manager):
+    roles, scopes = {}, {}
+    # No form of authentication is present.
+    username = SpecialUsers.public.value
+    # This is a 'dummy' principal used to pass data within the server. Not saved to the databased.
+    principal = schemas.Principal(
+        uuid=uuid_module.uuid4(),  # Generate unique UUID each time - it is not expected to be used
+        type="user",
+        identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
+    )
+
+    # Is anonymous public access permitted?
+    if settings.allow_anonymous_access:
+        # Any user who can see the server can make unauthenticated requests.
+        # This is a sentinel that has special meaning to the authorization
+        # code (the access control policies).
+        scopes = api_access_manager.get_user_scopes(username)
+        roles = api_access_manager.get_user_roles(username)
+
+    else:
+        # In this mode, there may still be entries that are visible to all,
+        # but users have to authenticate as *someone* to see anything.
+        # They can still access the /  and /docs routes.
+        scopes = {}
+        roles = {}
+    return roles, scopes, principal
+
+
+def check_scopes(request: Request, security_scopes: SecurityScopes, scopes):
     if not set(security_scopes.scopes).issubset(scopes):
-        # Include a link to the root page which provides a list of
-        # authenticators. The use case here is:
-        # 1. User is emailed a link like https://example.com/subpath/node/metadata/a/b/c
-        # 2. Tiled Client tries to connect to that and gets 401.
-        # 3. Client can use this header to find its way to
-        #    https://examples.com/subpath/ and obtain a list of
-        #    authentication providers and endpoints.
         raise HTTPException(
             status_code=401,
             detail=(
@@ -480,9 +458,11 @@ def get_current_principal(
                 f"Requires scopes {security_scopes.scopes}. "
                 f"Request had scopes {list(scopes)}"
             ),
-            headers=headers_for_401,
+            headers=headers_for_401(request, security_scopes),
         )
 
+
+def cleanup_scopes(roles, scopes, api_key_scopes, principal):
     roles_list, scopes_list = list(roles), list(scopes)
     roles_list.sort()
     scopes_list.sort()
