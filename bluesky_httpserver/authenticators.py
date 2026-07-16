@@ -26,6 +26,11 @@ from .utils import get_root_url, modules_available
 
 logger = logging.getLogger(__name__)
 
+class AuthCodeExchangeException(Exception):
+    pass
+
+class AuthMSGraphException(Exception):
+    pass
 
 class DummyAuthenticator(InternalAuthenticator):
     """
@@ -303,7 +308,19 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
         scopes_map: Optional[Dict[str, list[str]]] = None,
         client_secret: str = "",
         redirect_on_success: Optional[str] = None,
+        graph_username_attribute: Optional[str] = None,
     ):
+        """A MS Entra specific version of the OIDC authenticator
+
+        It attempts to extract a username from the standard list of claims returned
+        from the token Entra provides. Alternatively if a graph_username_attribute
+        is used then a call is made to MSGraphAPI to get the provided user attribute
+        and use it as the username instead.
+
+        The graph API call is the recommended way to authenticate with MS products, as all
+        claims in the token are inconsistent and not guaranteed.
+
+        """
         self.scopes_map = scopes_map if scopes_map is not None else {}
         self.extra_scopes = extra_scopes or []
         super().__init__(
@@ -318,6 +335,7 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
         if client_secret:
             self._client_secret = Secret(client_secret)
         self.redirect_on_success = redirect_on_success
+        self.graph_username_attribute = graph_username_attribute
 
     @property
     def scopes(self):
@@ -402,6 +420,100 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
 
         return claims
 
+    async def graph_lookup(self, access_token, user_param):
+        """Uses the access token provided in the auth flow to lookup a user parameter"""
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://graph.microsoft.com/v1.0/me",
+                params={
+                    "$select": user_param},
+                headers=headers,
+            )
+
+            response.raise_for_status()
+
+            return response.json()
+
+    def log_token_claims(self, verified_body):
+        """ log token claims
+        Includes logging of the token claims so misconfigurations are easier
+        to diagnose. Keep at debug level to avoid leaking PII in production logs 
+        by default
+        """
+        logger.debug(
+            "EntraAuthenticator.authenticate: id_token claims present: %s",
+            sorted(verified_body.keys()),
+        )
+        logger.debug(
+            "EntraAuthenticator.authenticate: entra_username=%r user=%r entra_sub=%r preferred_username=%r",
+            verified_body.get("entra_username"),
+            verified_body.get("user"),
+            verified_body.get("entra_sub"),
+            verified_body.get("preferred_username"),
+        )
+
+    async def get_username_from_graph(self, access_token):
+        """Attempts to get the username from either claims or MSGraphAPI call
+
+        If no username is found, there are errors in looking up the graphAPI
+        username, or whatever it returns None
+        """
+        try:
+            profile = await self.graph_lookup(access_token, self.graph_username_attribute)
+            logger.debug("Graph Profile: %r", profile)
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError):
+            logger.warning("Graph lookup failed")
+        username = None
+        if profile:
+            username = profile.get(self.graph_username_attribute)
+            if not username:
+                logger.warning(
+                    "Graph lookup succeeded but %s was empty",
+                    self.graph_username_attribute,
+                )
+        return username
+
+    def create_usersession(self, access_token, refresh_token, username):
+        """ Create usersession from tokens and final username
+
+        Store the Entra access and refresh tokens so that downstream
+        services that rely on Tiled authentication can perform an OBO exchange
+        to obtain per-user tokens for other services.  The refresh token
+        allows silent renewal without requiring the user to re-authenticate.
+        """
+        state: dict = {}
+        if access_token:
+            state["entra_access_token"] = access_token
+        if refresh_token:
+            state["entra_refresh_token"] = refresh_token
+        return UserSessionState(username, state)
+
+    async def auth_code_exchange(self, request: Request):
+        """Perform the authorization code exchange"""
+        code = request.query_params.get("code")
+        if not code:
+            logger.warning("Authentication failed: No authorization code parameter provided.")
+            raise AuthCodeExchangeException
+        redirect_uri = f"{get_root_url(request)}{request.url.path}"
+        response = await exchange_code(
+            self.token_endpoint,
+            code,
+            self._client_id,
+            self._client_secret.get_secret_value(),
+            redirect_uri,
+            extra_scopes=self.extra_scopes,
+        )
+        response_body = response.json()
+        if response.is_error:
+            logger.error("Authentication error: %r", response_body)
+            raise AuthCodeExchangeException
+        logger.debug("Response: %s", response_body)
+        return response_body
+
     async def authenticate(self, request: Request) -> Optional[UserSessionState]:
         """Complete the Entra OIDC authorization-code flow and return a session.
 
@@ -422,28 +534,18 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
         endpoint with ``grant_type=refresh_token`` to obtain a fresh pair and
         write it back to the session DB so subsequent Tiled ``slide_session``
         calls propagate the update automatically.
+
+        When an error occurs, the authenticate function will return None
+        instead of a UserSessionState
         """
-        code = request.query_params.get("code")
-        if not code:
-            logger.warning("Authentication failed: No authorization code parameter provided.")
+        try:
+            response_body = await self.auth_code_exchange(request)
+        except AuthCodeExchangeException:
             return None
-        redirect_uri = f"{get_root_url(request)}{request.url.path}"
-        response = await exchange_code(
-            self.token_endpoint,
-            code,
-            self._client_id,
-            self._client_secret.get_secret_value(),
-            redirect_uri,
-            extra_scopes=self.extra_scopes,
-        )
-        response_body = response.json()
-        if response.is_error:
-            logger.error("Authentication error: %r", response_body)
-            return None
-        logger.debug("Response: %s", response_body)
         id_token = response_body["id_token"]
         access_token = response_body.get("access_token")
         refresh_token = response_body.get("refresh_token")
+        
         try:
             verified_body = self.decode_token(id_token, access_token)
         except JWTError:
@@ -452,35 +554,17 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
                 jwt.get_unverified_claims(id_token),
             )
             return None
-        # Log the id_token claims available for username resolution so
-        # misconfigurations (missing optional claims) are easy to diagnose.
-        # Logged at DEBUG to avoid leaking PII in production logs by default.
-        logger.debug(
-            "EntraAuthenticator.authenticate: id_token claims present: %s",
-            sorted(verified_body.keys()),
-        )
-        user_claims_list = [f"{key}:{value}" for key, value in verified_body.items()]
-        logger.debug("Claims:\n%s", "\n".join(user_claims_list))
-        logger.debug("Token claims: %s", verified_body)
-        logger.debug(
-            "EntraAuthenticator.authenticate: entra_username=%r user=%r entra_sub=%r",
-            verified_body.get("entra_username"),
-            verified_body.get("user"),
-            verified_body.get("entra_sub"),
-        )
-        # Use the human-readable username (e.g. "dallan") instead of the
-        # opaque UUID-based "sub" that OIDCAuthenticator would use.
-        username = verified_body.get("user") or verified_body["sub"]
-        # Store the Entra access and refresh tokens so that downstream
-        # services that rely on Tiled authentication can perform an OBO exchange
-        # to obtain per-user tokens for other services.  The refresh token
-        # allows silent renewal without requiring the user to re-authenticate.
-        state: dict = {}
-        if access_token:
-            state["entra_access_token"] = access_token
-        if refresh_token:
-            state["entra_refresh_token"] = refresh_token
-        return UserSessionState(username, state)
+        self.log_token_claims(verified_body)
+        
+        if self.graph_username_attribute is not None:
+            username = await self.get_username_from_graph(access_token)
+        else:
+            username = verified_body.get("user") or verified_body["sub"]
+
+        if username is not None:
+            return self.create_usersession(access_token, refresh_token, username)
+        else:
+            return None
 
 
 async def exchange_code(
