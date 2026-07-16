@@ -26,11 +26,14 @@ from .utils import get_root_url, modules_available
 
 logger = logging.getLogger(__name__)
 
+
 class AuthCodeExchangeException(Exception):
     pass
 
+
 class AuthMSGraphException(Exception):
     pass
+
 
 class DummyAuthenticator(InternalAuthenticator):
     """
@@ -422,15 +425,12 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
 
     async def graph_lookup(self, access_token, user_param):
         """Uses the access token provided in the auth flow to lookup a user parameter"""
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 "https://graph.microsoft.com/v1.0/me",
-                params={
-                    "$select": user_param},
+                params={"$select": user_param},
                 headers=headers,
             )
 
@@ -439,9 +439,9 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
             return response.json()
 
     def log_token_claims(self, verified_body):
-        """ log token claims
+        """log token claims
         Includes logging of the token claims so misconfigurations are easier
-        to diagnose. Keep at debug level to avoid leaking PII in production logs 
+        to diagnose. Keep at debug level to avoid leaking PII in production logs
         by default
         """
         logger.debug(
@@ -478,7 +478,7 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
         return username
 
     def create_usersession(self, access_token, refresh_token, username):
-        """ Create usersession from tokens and final username
+        """Create usersession from tokens and final username
 
         Store the Entra access and refresh tokens so that downstream
         services that rely on Tiled authentication can perform an OBO exchange
@@ -545,7 +545,7 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
         id_token = response_body["id_token"]
         access_token = response_body.get("access_token")
         refresh_token = response_body.get("refresh_token")
-        
+
         try:
             verified_body = self.decode_token(id_token, access_token)
         except JWTError:
@@ -555,7 +555,7 @@ class EntraAuthenticator(ProxiedOIDCAuthenticator):
             )
             return None
         self.log_token_claims(verified_body)
-        
+
         if self.graph_username_attribute is not None:
             username = await self.get_username_from_graph(access_token)
         else:

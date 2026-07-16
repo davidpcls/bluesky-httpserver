@@ -12,8 +12,8 @@ from fastapi import HTTPException
 from fastapi.security import SecurityScopes
 from jose import ExpiredSignatureError, jwt
 from respx import MockRouter
-from starlette.requests import Request
 from starlette.datastructures import URL, QueryParams
+from starlette.requests import Request
 
 from bluesky_httpserver import authentication as _auth
 
@@ -562,10 +562,11 @@ def test_get_current_principal_preserves_api_key_scopes(sqlite_session, monkeypa
     import hashlib
     import secrets as py_secrets
 
+    from sqlalchemy.orm import sessionmaker
+
     from bluesky_httpserver.database import orm as db_orm
     from bluesky_httpserver.database.core import create_user
     from bluesky_httpserver.settings import DatabaseSettings
-    from sqlalchemy.orm import sessionmaker
 
     db = sqlite_session
     principal = create_user(db, "internal", "alice")
