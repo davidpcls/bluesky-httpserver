@@ -287,17 +287,22 @@ def get_current_principal(
     #   API keys.
     roles, scopes, api_key_scopes = {}, {}, None
     if api_key is not None:
-        with get_sessionmaker(settings.database_settings)() as db:
-            roles, scopes, principal = get_current_principal_from_api_key(
-                api_key, authenticators, db, settings, api_access_manager
+        if authenticators:
+            with get_sessionmaker(settings.database_settings)() as db:
+                roles, scopes, api_key_scopes, principal = get_current_principal_from_api_key(
+                    api_key, authenticators, db, settings, api_access_manager
+                )
+        else:
+            roles, scopes, api_key_scopes, principal = get_current_principal_from_api_key(
+                api_key, authenticators, None, settings, api_access_manager
             )
-        move_api_key(request, api_key)
-        if principal is None and authenticators:
+        if principal is None:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid API key",
                 headers=headers_for_401(request, security_scopes),
             )
+        move_api_key(request, api_key)
     elif decoded_access_token is not None:
         roles, scopes, principal = get_current_principal_from_token(
             authenticators, access_token, decoded_access_token, settings, api_access_manager, request
@@ -330,7 +335,7 @@ def get_current_principal_from_api_key(
         try:
             secret = bytes.fromhex(api_key)
         except Exception:
-            return None, None, None
+            return None, None, None, None
 
         api_key_orm = lookup_valid_api_key(db, secret)
         if api_key_orm is not None:
@@ -356,9 +361,9 @@ def get_current_principal_from_api_key(
                 scopes.discard("inherit")
             api_key_orm.latest_activity = utcnow()
             db.commit()
-            return roles, scopes, principal
+            return roles, scopes, api_key_scopes, principal
         else:
-            return None, None, None
+            return None, None, None, None
     else:
         username = SpecialUsers.single_user.value
         scopes = api_access_manager.get_user_scopes(username)
@@ -369,7 +374,7 @@ def get_current_principal_from_api_key(
             type="user",
             identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
         )
-        return roles, scopes, principal
+        return roles, scopes, None, principal
 
 
 def get_current_principal_from_token(

@@ -9,8 +9,10 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
+from fastapi.security import SecurityScopes
 from jose import ExpiredSignatureError, jwt
 from respx import MockRouter
+from starlette.requests import Request
 from starlette.datastructures import URL, QueryParams
 
 from bluesky_httpserver import authentication as _auth
@@ -470,3 +472,137 @@ async def test_authorize_route_requests_offline_access_and_prompts_login():
     assert params["prompt"] == "login"
     scopes = set(params["scope"].split())
     assert {"openid", "offline_access", "api://tiled/access_as_user"}.issubset(scopes)
+
+
+def _make_request(*, query_string: bytes = b"", path: str = "/api/status") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "server": ("localhost", 8000),
+            "path": path,
+            "query_string": query_string,
+            "root_path": "",
+            "headers": [(b"host", b"localhost:8000")],
+        }
+    )
+
+
+def test_headers_for_401_includes_scope_and_root():
+    request = _make_request()
+    headers = _auth.headers_for_401(request, SecurityScopes(scopes=["read:status"]))
+    assert headers["WWW-Authenticate"] == 'Bearer scope="read:status"'
+    assert headers["X-Tiled-Root"] == "http://localhost:8000/api"
+
+
+def test_check_scopes_raises_for_missing_scope():
+    request = _make_request()
+    with pytest.raises(HTTPException) as excinfo:
+        _auth.check_scopes(request, SecurityScopes(scopes=["admin:read:principals"]), {"read:status"})
+    assert excinfo.value.status_code == 401
+    assert "Not enough permissions" in excinfo.value.detail
+
+
+def test_cleanup_scopes_assigns_sorted_fields():
+    principal = _auth.schemas.Principal(
+        uuid="123e4567-e89b-12d3-a456-426614174000",
+        type="user",
+        identities=[_auth.schemas.Identity(id="alice", provider="internal")],
+    )
+    result = _auth.cleanup_scopes(
+        roles={"expert", "admin"},
+        scopes={"read:status", "read:queue"},
+        api_key_scopes={"read:status"},
+        principal=principal,
+    )
+    assert result.roles == ["admin", "expert"]
+    assert result.scopes == ["read:queue", "read:status"]
+    assert result.api_key_scopes == ["read:status"]
+
+
+def test_get_current_principal_rejects_invalid_single_user_api_key(monkeypatch):
+    class _DummySessionMaker:
+        def __call__(self):
+            class _DummyCtx:
+                def __enter__(self):
+                    return MagicMock()
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+            return _DummyCtx()
+
+    monkeypatch.setattr(_auth, "get_sessionmaker", lambda _db_settings: _DummySessionMaker())
+
+    settings = MagicMock()
+    settings.database_settings = MagicMock()
+    settings.single_user_api_key = "expected-key"
+
+    api_access_manager = MagicMock()
+    api_access_manager.get_user_scopes.return_value = {"read:status"}
+    api_access_manager.get_user_roles.return_value = {"single_user"}
+
+    request = _make_request()
+    with pytest.raises(HTTPException) as excinfo:
+        _auth.get_current_principal(
+            request=request,
+            security_scopes=SecurityScopes(scopes=[]),
+            access_token=None,
+            decoded_access_token=None,
+            api_key="wrong-key",
+            settings=settings,
+            authenticators={},
+            api_access_manager=api_access_manager,
+        )
+    assert excinfo.value.status_code == 401
+    assert "Invalid API key" in excinfo.value.detail
+
+
+def test_get_current_principal_preserves_api_key_scopes(sqlite_session, monkeypatch):
+    import hashlib
+    import secrets as py_secrets
+
+    from bluesky_httpserver.database import orm as db_orm
+    from bluesky_httpserver.database.core import create_user
+    from bluesky_httpserver.settings import DatabaseSettings
+    from sqlalchemy.orm import sessionmaker
+
+    db = sqlite_session
+    principal = create_user(db, "internal", "alice")
+    secret = py_secrets.token_bytes(4 + 32)
+    apikey_orm = db_orm.APIKey(
+        principal_id=principal.id,
+        first_eight=secret.hex()[:8],
+        hashed_secret=hashlib.sha256(secret).digest(),
+        scopes=["read:status"],
+    )
+    db.add(apikey_orm)
+    db.commit()
+
+    engine = db.get_bind()
+
+    def _fake_sessionmaker(_db_settings):
+        return sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+    monkeypatch.setattr(_auth, "get_sessionmaker", _fake_sessionmaker)
+
+    settings = MagicMock()
+    settings.database_settings = DatabaseSettings(uri="sqlite://", pool_size=None, pool_pre_ping=None)
+    settings.authentication_provider_names = ["internal"]
+
+    api_access_manager = MagicMock()
+    api_access_manager.get_user_scopes.return_value = {"read:status", "write:queue"}
+    api_access_manager.get_user_roles.return_value = {"user"}
+
+    request = _make_request()
+    resolved = _auth.get_current_principal(
+        request=request,
+        security_scopes=SecurityScopes(scopes=[]),
+        access_token=None,
+        decoded_access_token=None,
+        api_key=secret.hex(),
+        settings=settings,
+        authenticators={"internal": MagicMock()},
+        api_access_manager=api_access_manager,
+    )
+    assert resolved.api_key_scopes == ["read:status"]
