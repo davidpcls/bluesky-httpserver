@@ -285,16 +285,15 @@ def get_current_principal(
     # 'api_key_scopes'  is a set of allowed scopes for API key if authorized with API key.
     #   otherwise it is None. The original set of API key scopes is used for generating new
     #   API keys.
-    roles, scopes, api_key_scopes = {}, {}, None
     if api_key is not None:
         if authenticators:
             with get_sessionmaker(settings.database_settings)() as db:
-                roles, scopes, api_key_scopes, principal = get_current_principal_from_api_key(
+                principal = get_current_principal_from_api_key(
                     api_key, authenticators, db, settings, api_access_manager
                 )
         else:
-            roles, scopes, api_key_scopes, principal = get_current_principal_from_api_key(
-                api_key, authenticators, None, settings, api_access_manager
+            principal = get_current_principal_from_single_user_api_key(
+                api_key, settings, api_access_manager
             )
         if principal is None:
             raise HTTPException(
@@ -304,15 +303,15 @@ def get_current_principal(
             )
         move_api_key(request, api_key)
     elif decoded_access_token is not None:
-        roles, scopes, principal = get_current_principal_from_token(
+        principal = get_current_principal_from_token(
             authenticators, access_token, decoded_access_token, settings, api_access_manager, request
         )
     else:
-        roles, scopes, principal = get_current_principal_single_user(settings, api_access_manager)
+        principal = get_current_principal_public_access(settings, api_access_manager)
 
-    check_scopes(request, security_scopes, scopes)
+    check_scopes(request, security_scopes, principal)
 
-    return cleanup_scopes(roles, scopes, api_key_scopes, principal)
+    return principal
 
 
 def get_current_principal_from_api_key(
@@ -321,7 +320,7 @@ def get_current_principal_from_api_key(
     db,
     settings: BaseSettings,
     api_access_manager,
-):
+) -> schemas.Principal or None:
     """
     Tiled is in a multi-user configuration with authentication providers.
     We store the hashed value of the API key secret.
@@ -330,41 +329,44 @@ def get_current_principal_from_api_key(
     we reduce the value of that an attacker can extracted from a
     stolen database backup.
     """
-    if authenticators:
+    try:
+        secret = bytes.fromhex(api_key)
+    except Exception:
+        return None
 
-        try:
-            secret = bytes.fromhex(api_key)
-        except Exception:
-            return None, None, None, None
+    api_key_orm = lookup_valid_api_key(db, secret)
+    if api_key_orm is not None:
+        principal = schemas.Principal.from_orm(api_key_orm.principal)
+        ids = get_current_username(
+            principal=principal, settings=settings, api_access_manager=api_access_manager
+        )
+        scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
+        principal_scopes = set.union(*scope_sets) if scope_sets else set()
 
-        api_key_orm = lookup_valid_api_key(db, secret)
-        if api_key_orm is not None:
-            principal = schemas.Principal.from_orm(api_key_orm.principal)
-            ids = get_current_username(
-                principal=principal, settings=settings, api_access_manager=api_access_manager
-            )
-            scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
-            principal_scopes = set.union(*scope_sets) if scope_sets else set()
+        roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
+        roles = set.union(*roles_sets) if roles_sets else set()
 
-            roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
-            roles = set.union(*roles_sets) if roles_sets else set()
-
-            # This intersection addresses the case where the Principal has
-            # lost a scope that they had when this key was created.
-            api_key_scopes = set(api_key_orm.scopes)
-            scopes = api_key_scopes.intersection(principal_scopes | {"inherit"})
-            if "inherit" in scopes:
-                # The scope "inherit" is a metascope that confers all the
-                # scopes for the Principal associated with this API,
-                # resolved at access time.
-                scopes.update(principal_scopes)
-                scopes.discard("inherit")
-            api_key_orm.latest_activity = utcnow()
-            db.commit()
-            return roles, scopes, api_key_scopes, principal
-        else:
-            return None, None, None, None
+        # This intersection addresses the case where the Principal has
+        # lost a scope that they had when this key was created.
+        api_key_scopes = set(api_key_orm.scopes)
+        scopes = api_key_scopes.intersection(principal_scopes | {"inherit"})
+        if "inherit" in scopes:
+            # The scope "inherit" is a metascope that confers all the
+            # scopes for the Principal associated with this API,
+            # resolved at access time.
+            scopes.update(principal_scopes)
+            scopes.discard("inherit")
+        api_key_orm.latest_activity = utcnow()
+        db.commit()
+        return cleanup_principal_scopes(roles, scopes, api_key_scopes, principal)
     else:
+        return None 
+
+def get_current_principal_from_single_user_api_key( 
+                                                   api_key: str, 
+                                                   settings: BaseSettings, 
+                                                   api_access_manager) -> schemas.Principal or None:
+    if secrets.compare_digest(api_key, settings.single_user_api_key):
         username = SpecialUsers.single_user.value
         scopes = api_access_manager.get_user_scopes(username)
         roles = api_access_manager.get_user_roles(username)
@@ -374,12 +376,13 @@ def get_current_principal_from_api_key(
             type="user",
             identities=[schemas.Identity(id=username, provider=_DEFAULT_ANONYMOUS_PROVIDER_NAME)],
         )
-        return roles, scopes, None, principal
-
+        return cleanup_principal_scopes(roles, scopes, None, principal)
+    else:
+        return None
 
 def get_current_principal_from_token(
     authenticators, access_token, decoded_access_token, settings, api_access_manager, request
-):
+) -> schemas.Principal or None:
 
     if "sub_typ" in decoded_access_token:
         principal = schemas.Principal(
@@ -397,7 +400,6 @@ def get_current_principal_from_token(
 
         roles_sets = [api_access_manager.get_user_roles(_) for _ in ids]
         roles = set.union(*roles_sets) if roles_sets else set()
-
     else:
 
         identity_id = decoded_access_token.get("user") or decoded_access_token.get("sub")
@@ -423,10 +425,10 @@ def get_current_principal_from_token(
             extra_scopes = set()
             roles = set()
         scopes = set(token_scopes) | set(extra_scopes)
-    return roles, scopes, principal
+    return cleanup_principal_scopes(roles, scopes, None, principal)
 
 
-def get_current_principal_single_user(settings: BaseSettings, api_access_manager):
+def get_current_principal_public_access(settings: BaseSettings, api_access_manager):
     roles, scopes = {}, {}
     # No form of authentication is present.
     username = SpecialUsers.public.value
@@ -451,23 +453,23 @@ def get_current_principal_single_user(settings: BaseSettings, api_access_manager
         # They can still access the /  and /docs routes.
         scopes = {}
         roles = {}
-    return roles, scopes, principal
+    return cleanup_principal_scopes(roles, scopes, None, principal)
 
 
-def check_scopes(request: Request, security_scopes: SecurityScopes, scopes):
-    if not set(security_scopes.scopes).issubset(scopes):
+def check_scopes(request: Request, security_scopes: SecurityScopes, principal: schemas.Principal):
+    if not set(security_scopes.scopes).issubset(principal.scopes):
         raise HTTPException(
             status_code=401,
             detail=(
                 "Not enough permissions. "
                 f"Requires scopes {security_scopes.scopes}. "
-                f"Request had scopes {list(scopes)}"
+                f"Request had scopes {list(principal.scopes)}"
             ),
             headers=headers_for_401(request, security_scopes),
         )
 
 
-def cleanup_scopes(roles, scopes, api_key_scopes, principal):
+def cleanup_principal_scopes(roles, scopes, api_key_scopes, principal):
     roles_list, scopes_list = list(roles), list(scopes)
     roles_list.sort()
     scopes_list.sort()

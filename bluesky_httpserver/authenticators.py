@@ -31,10 +31,6 @@ class AuthCodeExchangeException(Exception):
     pass
 
 
-class AuthMSGraphException(Exception):
-    pass
-
-
 class DummyAuthenticator(InternalAuthenticator):
     """
     For test and demo purposes only!
