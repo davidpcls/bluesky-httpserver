@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import time
 from datetime import timedelta
@@ -146,6 +147,36 @@ def test_oidc_decoding(
     else:
         with pytest.raises(ExpiredSignatureError):
             authenticator.decode_token(encrypted_access_token)
+
+
+def test_entra_decoding_ignores_unmapped_scopes(caplog):
+    def mock_decode_token(self, id_token, access_token):
+        return {
+            "iss": "https://login.microsoftonline.com/example-tenant/v2.0",
+            "sub": "opaque-sub",
+            "preferred_username": "alice@example.org",
+            "scp": "known.scope unknown.scope",
+        }
+
+    original_decode_token = OIDCAuthenticator.decode_token
+    OIDCAuthenticator.decode_token = mock_decode_token
+    try:
+        caplog.set_level(logging.WARNING)
+
+        authenticator = object.__new__(EntraAuthenticator)
+        authenticator.scopes_map = {"known.scope": ["read:metadata"]}
+        claims = authenticator.decode_token("id-token", "access-token")
+
+        assert claims["entra_sub"] == "opaque-sub"
+        assert claims["entra_username"] == "alice@example.org"
+        assert claims["user"] == "alice"
+        assert claims["scope"] == "read:metadata"
+        assert any(
+            "Unmapped Entra scope in 'scp': unknown.scope" in record.message
+            for record in caplog.records
+        )
+    finally:
+        OIDCAuthenticator.decode_token = original_decode_token
 
 
 @pytest.mark.asyncio
@@ -495,10 +526,15 @@ def test_headers_for_401_includes_scope_and_root():
     assert headers["X-Tiled-Root"] == "http://localhost:8000/api"
 
 
-def test_cleanup_principal_scopes_raises_for_missing_scope():
+def test_check_scopes_raises_for_missing_scope():
+    principal = _auth.schemas.Principal(
+        uuid="123e4567-e89b-12d3-a456-426614174000",
+        type="user",
+        scopes={"read:status"},
+    )
     request = _make_request()
     with pytest.raises(HTTPException) as excinfo:
-        _auth.cleanup_principal_scopes(request, SecurityScopes(scopes=["admin:read:principals"]), {"read:status"})
+        _auth.check_scopes(request, SecurityScopes(scopes=["admin:read:principals"]), principal)
     assert excinfo.value.status_code == 401
     assert "Not enough permissions" in excinfo.value.detail
 
