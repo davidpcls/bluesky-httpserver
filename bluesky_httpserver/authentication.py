@@ -292,9 +292,7 @@ def get_current_principal(
                     api_key, authenticators, db, settings, api_access_manager
                 )
         else:
-            principal = get_current_principal_from_single_user_api_key(
-                api_key, settings, api_access_manager
-            )
+            principal = get_current_principal_from_single_user_api_key(api_key, settings, api_access_manager)
         if principal is None:
             raise HTTPException(
                 status_code=401,
@@ -337,9 +335,7 @@ def get_current_principal_from_api_key(
     api_key_orm = lookup_valid_api_key(db, secret)
     if api_key_orm is not None:
         principal = schemas.Principal.from_orm(api_key_orm.principal)
-        ids = get_current_username(
-            principal=principal, settings=settings, api_access_manager=api_access_manager
-        )
+        ids = get_current_username(principal=principal, settings=settings, api_access_manager=api_access_manager)
         scope_sets = [api_access_manager.get_user_scopes(_) for _ in ids]
         principal_scopes = set.union(*scope_sets) if scope_sets else set()
 
@@ -360,12 +356,12 @@ def get_current_principal_from_api_key(
         db.commit()
         return cleanup_principal_scopes(roles, scopes, api_key_scopes, principal)
     else:
-        return None 
+        return None
 
-def get_current_principal_from_single_user_api_key( 
-                                                   api_key: str, 
-                                                   settings: BaseSettings, 
-                                                   api_access_manager) -> schemas.Principal or None:
+
+def get_current_principal_from_single_user_api_key(
+    api_key: str, settings: BaseSettings, api_access_manager
+) -> schemas.Principal or None:
     if secrets.compare_digest(api_key, settings.single_user_api_key):
         username = SpecialUsers.single_user.value
         scopes = api_access_manager.get_user_scopes(username)
@@ -379,6 +375,7 @@ def get_current_principal_from_single_user_api_key(
         return cleanup_principal_scopes(roles, scopes, None, principal)
     else:
         return None
+
 
 def get_current_principal_from_token(
     authenticators, access_token, decoded_access_token, settings, api_access_manager, request
