@@ -495,21 +495,21 @@ def test_headers_for_401_includes_scope_and_root():
     assert headers["X-Tiled-Root"] == "http://localhost:8000/api"
 
 
-def test_check_scopes_raises_for_missing_scope():
+def test_cleanup_principal_scopes_raises_for_missing_scope():
     request = _make_request()
     with pytest.raises(HTTPException) as excinfo:
-        _auth.check_scopes(request, SecurityScopes(scopes=["admin:read:principals"]), {"read:status"})
+        _auth.cleanup_principal_scopes(request, SecurityScopes(scopes=["admin:read:principals"]), {"read:status"})
     assert excinfo.value.status_code == 401
     assert "Not enough permissions" in excinfo.value.detail
 
 
-def test_cleanup_scopes_assigns_sorted_fields():
+def test_cleanup_principal_scopes_assigns_sorted_fields():
     principal = _auth.schemas.Principal(
         uuid="123e4567-e89b-12d3-a456-426614174000",
         type="user",
         identities=[_auth.schemas.Identity(id="alice", provider="internal")],
     )
-    result = _auth.cleanup_scopes(
+    result = _auth.cleanup_principal_scopes(
         roles={"expert", "admin"},
         scopes={"read:status", "read:queue"},
         api_key_scopes={"read:status"},

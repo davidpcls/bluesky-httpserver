@@ -362,6 +362,7 @@ def get_current_principal_from_api_key(
 def get_current_principal_from_single_user_api_key(
     api_key: str, settings: BaseSettings, api_access_manager
 ) -> schemas.Principal or None:
+    """Validates single user api key and sets the scopes and roles"""
     if secrets.compare_digest(api_key, settings.single_user_api_key):
         username = SpecialUsers.single_user.value
         scopes = api_access_manager.get_user_scopes(username)
@@ -380,6 +381,7 @@ def get_current_principal_from_single_user_api_key(
 def get_current_principal_from_token(
     authenticators, access_token, decoded_access_token, settings, api_access_manager, request
 ) -> schemas.Principal or None:
+    """Get a principal from the stored token and set the scopes appropriately"""
 
     if "sub_typ" in decoded_access_token:
         principal = schemas.Principal(
@@ -426,6 +428,7 @@ def get_current_principal_from_token(
 
 
 def get_current_principal_public_access(settings: BaseSettings, api_access_manager):
+    """Check if public access is enabled and create a principal if it is"""
     roles, scopes = {}, {}
     # No form of authentication is present.
     username = SpecialUsers.public.value
@@ -454,6 +457,7 @@ def get_current_principal_public_access(settings: BaseSettings, api_access_manag
 
 
 def check_scopes(request: Request, security_scopes: SecurityScopes, principal: schemas.Principal):
+    """Enforce scope limits"""
     if not set(security_scopes.scopes).issubset(principal.scopes):
         raise HTTPException(
             status_code=401,
@@ -467,6 +471,7 @@ def check_scopes(request: Request, security_scopes: SecurityScopes, principal: s
 
 
 def cleanup_principal_scopes(roles, scopes, api_key_scopes, principal):
+    """Sort the scopes and include them to the principals list of scopes"""
     roles_list, scopes_list = list(roles), list(scopes)
     roles_list.sort()
     scopes_list.sort()
