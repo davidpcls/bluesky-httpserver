@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, StaticPool
+from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -27,7 +27,6 @@ from bluesky_httpserver.database import orm
 from bluesky_httpserver.database.base import Base
 from bluesky_httpserver.database.core import create_user
 from bluesky_httpserver.schemas import DeviceCode
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -347,9 +346,7 @@ async def test_token_route_access_denied_surfaces_error_immediately(db_session, 
     monkeypatch.setattr(_auth, "get_sessionmaker", lambda _: _make_sessionmaker(db_engine))
 
     raw_device_code = secrets.token_bytes(32)
-    _make_pending_session(
-        db_session, raw_device_code=raw_device_code, user_code="EEEE5555", error="access_denied"
-    )
+    _make_pending_session(db_session, raw_device_code=raw_device_code, user_code="EEEE5555", error="access_denied")
 
     token_fn = _auth.build_device_code_token_route(MagicMock(), "entra")
     request = _make_request()
@@ -435,7 +432,9 @@ async def test_token_route_success_returns_tokens(db_session, db_engine, monkeyp
     assert result["token_type"] == "bearer"
 
     # The pending session should have been deleted (one-time use)
-    remaining = db_session.query(orm.PendingSession).filter_by(
-        hashed_device_code=hashlib.sha256(raw_device_code).digest()
-    ).first()
+    remaining = (
+        db_session.query(orm.PendingSession)
+        .filter_by(hashed_device_code=hashlib.sha256(raw_device_code).digest())
+        .first()
+    )
     assert remaining is None
